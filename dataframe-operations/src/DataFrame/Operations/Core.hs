@@ -496,6 +496,9 @@ renameSafe ::
     T.Text -> T.Text -> DataFrame -> Either DataFrameException DataFrame
 renameSafe orig new df
     | null df = throw (EmptyDataSetException "rename")
+    -- Renaming onto a live column would orphan it and corrupt the frame.
+    | orig /= new && M.member new (columnIndices df) =
+        Left (DuplicateColumnException new "rename")
     | otherwise = fromMaybe
         (Left $ ColumnsNotFoundException [orig] "rename" (M.keys $ columnIndices df))
         $ do

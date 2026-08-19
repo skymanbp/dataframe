@@ -32,9 +32,11 @@ data DataFrameException where
         DataFrameException
     AggregatedAndNonAggregatedException :: T.Text -> T.Text -> DataFrameException
     ColumnsNotFoundException :: [T.Text] -> T.Text -> [T.Text] -> DataFrameException
+    DuplicateColumnException :: T.Text -> T.Text -> DataFrameException
     EmptyDataSetException :: T.Text -> DataFrameException
     InternalException :: T.Text -> DataFrameException
     NonColumnReferenceException :: T.Text -> DataFrameException
+    RowsOutOfBoundsException :: [Int] -> Int -> DataFrameException
     UnaggregatedException :: T.Text -> DataFrameException
     WrongQuantileNumberException :: Int -> DataFrameException
     WrongQuantileIndexException :: VU.Vector Int -> Int -> DataFrameException
@@ -54,7 +56,20 @@ instance Show DataFrameException where
                 (callingFunctionName context)
                 errorString
     show (ColumnsNotFoundException columnNames callPoint availableColumns) = columnsNotFound columnNames callPoint availableColumns
+    show (DuplicateColumnException name callPoint) =
+        red "\n\n[ERROR] "
+            ++ "Column already exists: "
+            ++ T.unpack name
+            ++ " for operation "
+            ++ T.unpack callPoint
     show (EmptyDataSetException callPoint) = emptyDataSetError callPoint
+    show (RowsOutOfBoundsException ixs n) =
+        red "\n\n[ERROR] "
+            ++ "Row indexes out of bounds: "
+            ++ show ixs
+            ++ " (the dataframe has "
+            ++ show n
+            ++ " rows)"
     show (WrongQuantileNumberException q) = wrongQuantileNumberError q
     show (WrongQuantileIndexException qs q) = wrongQuantileIndexError qs q
     show (InternalException msg) = "Internal error: " ++ T.unpack msg

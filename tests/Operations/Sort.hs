@@ -12,6 +12,7 @@ import qualified DataFrame.Internal.Column as DI
 import System.Random
 import System.Random.Shuffle (shuffle')
 import Test.HUnit
+import Type.Reflection (typeRep)
 
 values :: [(T.Text, DI.Column)]
 values =
@@ -89,6 +90,15 @@ sortByColumnDoesNotExist =
             (print $ D.sortBy [D.Asc (F.col @Int "test0")] testData)
         )
 
+sortByWrongColumnType :: Test
+sortByWrongColumnType =
+    TestCase
+        ( assertExpectException
+            "[Error Case]"
+            (D.typeMismatchError (show $ typeRep @Double) (show $ typeRep @Int))
+            (print $ D.sortBy [D.Asc (F.col @Double "test1")] testData)
+        )
+
 compoundTestData :: D.DataFrame
 compoundTestData =
     D.fromNamedColumns
@@ -160,6 +170,7 @@ tests =
     [ TestLabel "sortByAscendingWAI" sortByAscendingWAI
     , TestLabel "sortByDescendingWAI" sortByDescendingWAI
     , TestLabel "sortByColumnDoesNotExist" sortByColumnDoesNotExist
+    , TestLabel "sortByWrongColumnType" sortByWrongColumnType
     , TestLabel "sortByTwoColumns" sortByTwoColumns
     , TestLabel "sortByOneColumnAscOneColumnDesc" sortByOneColumnAscOneColumnDesc
     , TestLabel "sortByCompoundExpression" sortByCompoundExpression
