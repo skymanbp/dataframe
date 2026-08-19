@@ -86,6 +86,19 @@ fromCsvSingleColumn = TestLabel "fromCsv_single_column" $ TestCase $ do
             assertEqual "rows" 3 (D.nRows df)
             assertEqual "columns" 1 (D.nColumns df)
 
+-- | Round trip: fields holding separators, quotes and newlines survive.
+fromCsvRoundTripQuoted :: Test
+fromCsvRoundTripQuoted = TestLabel "fromCsv_roundTrip_quoted" $ TestCase $ do
+    let df =
+            D.fromNamedColumns
+                [ ("a,b", DI.fromList @T.Text ["x,y", "he said \"hi\"", "line1\nline2"])
+                , ("c", DI.fromList @Int [1, 2, 3])
+                ]
+    result <- fromCsv (T.unpack (toCsv df))
+    case result of
+        Left err -> assertFailure $ "Unexpected Left: " ++ err
+        Right df' -> assertEqual "round trip data" df df'
+
 tests :: [Test]
 tests =
     [ fromCsvHappyPath
@@ -94,4 +107,5 @@ tests =
     , fromCsvRoundTrip
     , fromCsvBytesRoundTrip
     , fromCsvSingleColumn
+    , fromCsvRoundTripQuoted
     ]
