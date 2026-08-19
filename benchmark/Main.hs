@@ -7,11 +7,12 @@ import qualified DataFrame as D
 import qualified DataFrame.Functions as F
 
 import Control.DeepSeq (NFData (..))
-import Control.Monad (void)
+import Control.Monad (void, when)
 import Criterion.Main
 import DataFrame.Internal.DataFrame (forceDataFrame)
 import DataFrame.Operations.Join
 import DataFrame.Operators
+import System.Directory (doesFileExist)
 import System.Process hiding (env)
 import System.Random.Stateful
 
@@ -94,6 +95,15 @@ groupByExplorer = do
 
 parseFile :: String -> IO ()
 parseFile = void . D.readCsv
+
+covidCsv :: String
+covidCsv = "./data/effects-of-covid-19-on-trade-at-15-december-2021-provisional.csv"
+
+-- The 9.5 MB covid input is not shipped in the sdist; no-op when absent.
+parseFileIfPresent :: String -> IO ()
+parseFileIfPresent path = do
+    exists <- doesFileExist path
+    when exists (parseFile path)
 
 parseHousingCSV :: IO ()
 parseHousingCSV = parseFile "./data/housing.csv"
@@ -223,10 +233,7 @@ main = do
             ]
         , bgroup
             "effects-of-covid-19-on-trade-at-15-december-2021-provisional.csv (9.1 MB)"
-            [ bench "Attoparsec" $
-                nfIO $
-                    parseFile
-                        "./data/effects-of-covid-19-on-trade-at-15-december-2021-provisional.csv"
+            [ bench "Attoparsec" $ nfIO $ parseFileIfPresent covidCsv
             ]
         , bgroup
             "join/inner/1:1"
