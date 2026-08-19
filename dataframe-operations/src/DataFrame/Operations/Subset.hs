@@ -148,12 +148,14 @@ dropLast n d =
 range :: (Int, Int) -> DataFrame -> DataFrame
 range (start, end) d =
     d
-        { columns = V.map (sliceColumn (clip start 0 r) n') (columns d)
+        { columns = V.map (sliceColumn start' n') (columns d)
         , dataframeDimensions = (n', c)
         }
   where
     (r, c) = dataframeDimensions d
-    n' = clip (end - start) 0 r
+    start' = clip start 0 r
+    -- Bounded by the rows left after start', not by r.
+    n' = clip (clip end 0 r - start') 0 (r - start')
 
 clip :: Int -> Int -> Int -> Int
 clip n left right = min right $ max n left
@@ -424,12 +426,17 @@ selectBy xs df = select finalSelection df
 > selectRows [0, 2, 4] df
 -}
 selectRows :: [Int] -> DataFrame -> DataFrame
-selectRows ixs df =
-    df
-        { columns = V.map (atIndicesStable ixs') (columns df)
-        , dataframeDimensions = (VU.length ixs', snd (dataframeDimensions df))
-        }
+selectRows ixs df
+    -- 'atIndicesStable' gathers with unsafeIndex; bounds-check here.
+    | not (L.null oob) = throw (RowsOutOfBoundsException oob r)
+    | otherwise =
+        df
+            { columns = V.map (atIndicesStable ixs') (columns df)
+            , dataframeDimensions = (VU.length ixs', snd (dataframeDimensions df))
+            }
   where
+    (r, _) = dataframeDimensions df
+    oob = L.filter (\i -> i < 0 || i >= r) ixs
     ixs' = VU.fromList ixs
 
 {- | O(n) inverse of select

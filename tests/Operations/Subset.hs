@@ -12,6 +12,8 @@ import DataFrame.Operations.Merge ()
 import System.Random
 import Test.HUnit
 
+import Assertions (assertExpectException)
+
 prop_dropZero :: DataFrame -> Bool
 prop_dropZero df = D.drop 0 df == df
 
@@ -52,6 +54,20 @@ prop_rangeFull :: DataFrame -> Bool
 prop_rangeFull df =
     let rows = fst (dataframeDimensions df)
      in D.range (0, rows) df == df
+
+prop_rangeClipsPastEnd :: DataFrame -> Bool
+prop_rangeClipsPastEnd df =
+    let rows = fst (dataframeDimensions df)
+     in D.range (rows `div` 2, rows + 10) df == D.drop (rows `div` 2) df
+
+prop_rangeClipsNegativeStart :: DataFrame -> Bool
+prop_rangeClipsNegativeStart df =
+    fst (dataframeDimensions (D.range (-5, 2) df))
+        == min 2 (fst (dataframeDimensions df))
+
+prop_selectRowsIdentity :: DataFrame -> Bool
+prop_selectRowsIdentity df =
+    D.selectRows [0 .. fst (dataframeDimensions df) - 1] df == df
 
 prop_selectAll :: DataFrame -> Bool
 prop_selectAll df = D.select (D.columnNames df) df == df
@@ -177,9 +193,31 @@ unit_stratifiedSplit_proportions =
                     )
                     (abs (vaProp - origProp) < tol)
 
+unit_selectRowsOutOfBounds :: Test
+unit_selectRowsOutOfBounds =
+    TestCase $ do
+        assertExpectException
+            "[Error Case]"
+            "Row indexes out of bounds"
+            (print $ D.selectRows [0, 1000000] strataDf)
+        assertExpectException
+            "[Error Case]"
+            "Row indexes out of bounds"
+            (print $ D.selectRows [-1] strataDf)
+
+unit_rangePastEndClips :: Test
+unit_rangePastEndClips =
+    TestCase $
+        assertEqual
+            "range past the end clips"
+            1
+            (fst (dataframeDimensions (D.range (9, 99) strataDf)))
+
 hunitTests :: [Test]
 hunitTests =
-    [ TestLabel "unit_stratifiedSample_full" unit_stratifiedSample_full
+    [ TestLabel "unit_selectRowsOutOfBounds" unit_selectRowsOutOfBounds
+    , TestLabel "unit_rangePastEndClips" unit_rangePastEndClips
+    , TestLabel "unit_stratifiedSample_full" unit_stratifiedSample_full
     , TestLabel "unit_stratifiedSplit_rowCount" unit_stratifiedSplit_rowCount
     , TestLabel
         "unit_stratifiedSplit_singleRowStratum"
@@ -199,6 +237,9 @@ tests =
     , prop_dropLastAll
     , prop_rangeEmpty
     , prop_rangeFull
+    , prop_rangeClipsPastEnd
+    , prop_rangeClipsNegativeStart
+    , prop_selectRowsIdentity
     , prop_selectAll
     , prop_selectEmpty
     , prop_excludeEmpty

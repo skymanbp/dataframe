@@ -170,6 +170,16 @@ prop_renameRoundTrip (Frame df) =
              in notElem tmp (columnNames df) ==>
                     D.rename tmp name (D.rename name tmp df) === df
 
+-- | Renaming never changes the number of columns.
+prop_renameKeepsWidth :: Frame -> Property
+prop_renameKeepsWidth (Frame df) =
+    case columnNames df of
+        [] -> property True
+        (name : _) ->
+            let tmp = name <> "__rn_x"
+             in notElem tmp (columnNames df) ==>
+                    length (columnNames (D.rename name tmp df)) === D.nColumns df
+
 tests :: [Property]
 tests =
     [ property prop_unionCommutative
@@ -185,4 +195,5 @@ tests =
     , property prop_differenceDisjoint
     , property prop_excludeNothingIdentity
     , property prop_renameRoundTrip
+    , property prop_renameKeepsWidth
     ]
