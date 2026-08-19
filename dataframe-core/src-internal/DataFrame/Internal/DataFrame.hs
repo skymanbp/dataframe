@@ -335,9 +335,19 @@ toSeparated sep df
         let (rows, _) = dataframeDimensions df
             headers = map fst (sortBy (compare `on` snd) (M.toList (columnIndices df)))
             sepText = T.singleton sep
-            headerLine = T.intercalate sepText headers
-            dataLines = map (T.intercalate sepText . getRowAsText df) [0 .. rows - 1]
+            escape = escapeField sep
+            headerLine = T.intercalate sepText (map escape headers)
+            dataLines =
+                map (T.intercalate sepText . map escape . getRowAsText df) [0 .. rows - 1]
          in T.unlines (headerLine : dataLines)
+
+-- | RFC 4180: quote fields with sep, quote or newline; double inner quotes.
+escapeField :: Char -> T.Text -> T.Text
+escapeField sep t
+    | T.any needsQuoting t = "\"" <> T.replace "\"" "\"\"" t <> "\""
+    | otherwise = t
+  where
+    needsQuoting c = c == sep || c == '"' || c == '\n' || c == '\r'
 
 getRowAsText :: DataFrame -> Int -> [T.Text]
 getRowAsText df i = map (`showElement` i) (V.toList (columns df))
