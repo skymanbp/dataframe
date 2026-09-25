@@ -53,6 +53,8 @@ import qualified DataFrame.Functions as F
 import DataFrame.Internal.Column (Columnable)
 import DataFrame.Typed.Types (TExpr (..))
 
+infixl 7 `div`, `mod`
+
 -- | Integer division.
 div ::
     (Integral a, Columnable a) => TExpr cols a -> TExpr cols a -> TExpr cols a
