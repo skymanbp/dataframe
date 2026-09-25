@@ -103,6 +103,10 @@ supportedType (SType (_ :: P.Proxy a))
     | isJust (testEquality (typeRep @a) (typeRep @Day)) = Just TDate
     | otherwise = Nothing
 
+isMaybeText :: SchemaType -> Bool
+isMaybeText (SType (_ :: P.Proxy a)) =
+    isJust (testEquality (typeRep @a) (typeRep @(Maybe T.Text)))
+
 {- | How to build one column, resolved once per read (before any chunk
 fan-out). 'PlanLegacy' carries the \"re-apply 'parseWithTypes'\" flag.
 -}
@@ -125,7 +129,10 @@ planColumn env name col = case mode of
         Nothing -> chainPlan env mode col
         Just st -> case supportedType st of
             Just t -> PlanSchema mode (nullSpecFor opts mode) t
-            Nothing -> PlanLegacy mode True
+            Nothing
+                | isMaybeText st ->
+                    PlanSchema MaybeRead (nullSpecFor opts mode) TText
+                | otherwise -> PlanLegacy mode True
   where
     opts = ceOpts env
     mode = effectiveSafeRead (safeRead opts) (safeReadOverrides opts) name

@@ -93,6 +93,23 @@ testSchemaTextBypassesInference = TestLabel "typed_schema_text" $
                 df
                 (DI.fromList @T.Text ["1", "2"])
 
+-- A Maybe Text schema bypasses inference too: date-shaped cells keep their
+-- text and only the empty cell is null.
+testSchemaMaybeTextBypassesInference :: Test
+testSchemaMaybeTextBypassesInference = TestLabel "typed_schema_maybe_text" $
+    TestCase $
+        withCsv "schema_maybe_text" "a,b\n1,2024-01-01\n2,\n3,2024-01-03\n" $ \path -> do
+            let schema =
+                    Schema (M.fromList [("b", SType (P.Proxy @(Maybe T.Text)))])
+            df <- D.fastReadCsvWithSchema schema path
+            expectColumn
+                "schema Maybe Text wins over inferred Day"
+                "b"
+                df
+                ( DI.fromList @(Maybe T.Text)
+                    [Just "2024-01-01", Nothing, Just "2024-01-03"]
+                )
+
 -- Schema + NoSafeRead: a cell that cannot parse as the declared type
 -- raises during the read (strict read), instead of hiding an error thunk.
 testSchemaStrictFailureThrows :: Test
@@ -308,6 +325,7 @@ tests =
     [ testIntOverflowDemotesToDouble
     , testPaddedDoubleStaysDouble
     , testSchemaTextBypassesInference
+    , testSchemaMaybeTextBypassesInference
     , testSchemaStrictFailureThrows
     , testSchemaMaybeReadNullsFailures
     , testNoSafeReadNADemotesToText
