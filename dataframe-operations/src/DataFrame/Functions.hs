@@ -191,7 +191,7 @@ toDouble =
             }
         )
 
-infix 8 `div`
+infixl 7 `div`, `mod`
 div :: (Integral a, Columnable a) => Expr a -> Expr a -> Expr a
 div = lift2Decorated Prelude.div "div" (Just "//") False 7
 

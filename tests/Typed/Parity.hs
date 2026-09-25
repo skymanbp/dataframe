@@ -89,6 +89,14 @@ exprParity =
             "recodeWithDefault"
             (DT.recodeWithDefault 0 [(1 :: Int, 100 :: Int)] (DT.col @"x"))
             (F.recodeWithDefault 0 [(1 :: Int, 100 :: Int)] (F.col @Int "x"))
+        , deriveEq
+            "div"
+            (DT.col @"x" * 3 `DT.div` 2)
+            (F.div (F.col @Int "x" * 3) 2)
+        , deriveEq
+            "mod"
+            (DT.col @"x" * 3 `DT.mod` 4)
+            (F.mod (F.col @Int "x" * 3) 4)
         ]
   where
     deriveEq ::

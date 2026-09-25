@@ -110,10 +110,25 @@ testDaysBetween =
             ]
     days a b = D.columnAsList @Int (F.col "d") (D.derive "d" (F.daysBetween a b) dates)
 
+testDivModFixity :: Test
+testDivModFixity =
+    TestCase
+        ( assertEqual
+            "div and mod group like Prelude div and mod"
+            ([a * 3 `div` 2 | a <- [1 .. 10]], [a * 3 `mod` 4 | a <- [1 .. 10]])
+            ( eval (F.col @Int "A" * 3 `F.div` 2)
+            , eval (F.col @Int "A" * 3 `F.mod` 4)
+            )
+        )
+  where
+    eval :: D.Expr Int -> [Int]
+    eval e = D.columnAsList @Int (F.col "r") (D.derive "r" e df)
+
 tests :: [Test]
 tests =
     [ TestLabel "sanitizeIdentifiers" sanitizeIdentifiers
     , TestLabel "testSum" testSum
     , TestLabel "testPow" testPow
     , TestLabel "testDaysBetween" testDaysBetween
+    , TestLabel "testDivModFixity" testDivModFixity
     ]
