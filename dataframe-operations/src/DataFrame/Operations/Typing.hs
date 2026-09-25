@@ -358,14 +358,18 @@ parseWithTypes resolveMode ts df
     asType mode st@(SType (_ :: P.Proxy a)) c@(PackedText _ _) =
         case testEquality (typeRep @a) (typeRep @T.Text) of
             Just Refl -> c
-            Nothing -> asType mode st (materializePacked c)
+            Nothing -> case testEquality (typeRep @a) (typeRep @(Maybe T.Text)) of
+                Just Refl -> ensureOptional c
+                Nothing -> asType mode st (materializePacked c)
     asType mode (SType (_ :: P.Proxy a)) c@(BoxedColumn _ (col :: V.Vector b)) = case typeRep @a of
         App t1 _t2 -> case eqTypeRep t1 (typeRep @Maybe) of
             Just HRefl -> case testEquality (typeRep @a) (typeRep @b) of
                 Just Refl -> c
-                Nothing -> case testEquality (typeRep @T.Text) (typeRep @b) of
-                    Just Refl -> fromVector (V.map (join . (readAsMaybe @a) . T.unpack) col)
-                    Nothing -> fromVector (V.map (join . (readAsMaybe @a) . show) col)
+                Nothing -> case testEquality (typeRep @a) (typeRep @(Maybe b)) of
+                    Just Refl -> ensureOptional c
+                    Nothing -> case testEquality (typeRep @T.Text) (typeRep @b) of
+                        Just Refl -> fromVector (V.map (join . (readAsMaybe @a) . T.unpack) col)
+                        Nothing -> fromVector (V.map (join . (readAsMaybe @a) . show) col)
             Nothing -> case t1 of
                 App t1' _t2' -> case eqTypeRep t1' (typeRep @Either) of
                     Just HRefl -> case testEquality (typeRep @a) (typeRep @b) of

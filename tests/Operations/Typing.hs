@@ -4,6 +4,7 @@
 
 module Operations.Typing where
 
+import qualified Data.Map as M
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import qualified Data.Vector as V
@@ -1040,6 +1041,19 @@ parseDefaultsNonExistentOverride = TestCase $ do
                     <> show col
         Nothing -> assertFailure "a column missing"
 
+-- A Maybe Text schema over a Text column keeps the text.
+parseWithTypesMaybeText :: Test
+parseWithTypesMaybeText =
+    let df = D.fromNamedColumns [("t", DI.fromList @T.Text ["x", "y"])]
+        schema = M.fromList [("t", D.schemaType @(Maybe T.Text))]
+        expected = DI.fromList @(Maybe T.Text) [Just "x", Just "y"]
+     in TestCase
+            ( assertEqual
+                "Maybe Text schema keeps the cell text"
+                (Just expected)
+                (getColumn "t" (D.parseWithTypes (const D.NoSafeRead) schema df))
+            )
+
 parseAllNullWithEitherRead :: Test
 parseAllNullWithEitherRead =
     -- NoAssumption path: sample is all empty/nullish so inference can't
@@ -1502,6 +1516,7 @@ tests =
            , TestLabel
                 "parseDefaultsNonExistentOverride"
                 parseDefaultsNonExistentOverride
+           , TestLabel "parseWithTypesMaybeText" parseWithTypesMaybeText
            , -- 4. PARSING MUST NOT DEPEND ON THE NUMBER OF EXAMPLES
              TestLabel "parseBoolsWithOneExample" parseBoolsWithOneExample
            , TestLabel "parseBoolsWithManyExamples" parseBoolsWithManyExamples

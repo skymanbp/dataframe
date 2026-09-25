@@ -267,6 +267,14 @@ goldenCases =
         , Cols (3, 1) [("a", mtexts [Just "x", Nothing, Just "z"])]
         )
     ,
+        ( "schema_maybe_text"
+        , defaultReadOptions
+            { typeSpec = SpecifyTypes [("a", schemaTypeMaybeText)] NoInference
+            }
+        , "a\nx\nNA\n\nz\n"
+        , Cols (3, 1) [("a", mtexts [Just "x", Nothing, Just "z"])]
+        )
+    ,
         ( "dates"
         , defaultReadOptions
         , "d\n2024-01-02\n2024-02-03\n"
@@ -578,6 +586,7 @@ goldenCases =
   where
     schemaTypeInt = schemaType @Int
     schemaTypeText = schemaType @T.Text
+    schemaTypeMaybeText = schemaType @(Maybe T.Text)
 
 -- Duplicate header names: last index wins in the map; both columns kept.
 dupHeaders :: Test
