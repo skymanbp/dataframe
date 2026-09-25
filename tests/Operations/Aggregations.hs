@@ -324,6 +324,45 @@ groupByOptionalColumn =
             )
         )
 
+momentShapeAfterBaseColumnChange :: Test
+momentShapeAfterBaseColumnChange =
+    TestCase
+        ( assertEqual
+            "Derived columns keep their stored values after the base column changes"
+            ( D.fromNamedColumns
+                [ ("k", DI.fromList [0 :: Int])
+                , ("n", DI.fromList [3 :: Int])
+                , ("sx", DI.fromList [60 :: Double])
+                , ("sy", DI.fromList [3 :: Double])
+                , ("sxx", DI.fromList [14 :: Double])
+                , ("syy", DI.fromList [3 :: Double])
+                , ("sxy", DI.fromList [6 :: Double])
+                ]
+            )
+            ( D.fromNamedColumns
+                [ ("k", DI.fromList [0 :: Int, 0, 0])
+                , ("x", DI.fromList [1 :: Double, 2, 3])
+                , ("y", DI.fromList [1 :: Double, 1, 1])
+                ]
+                & D.derive "xx" (x * x)
+                & D.derive "yy" (y * y)
+                & D.derive "xy" (x * y)
+                & D.apply @Double (* 10) "x"
+                & D.groupBy ["k"]
+                & D.aggregate
+                    [ F.count x `as` "n"
+                    , F.sum x `as` "sx"
+                    , F.sum y `as` "sy"
+                    , F.sum (F.col @Double "xx") `as` "sxx"
+                    , F.sum (F.col @Double "yy") `as` "syy"
+                    , F.sum (F.col @Double "xy") `as` "sxy"
+                    ]
+            )
+        )
+  where
+    x = F.col @Double "x"
+    y = F.col @Double "y"
+
 tests :: [Test]
 tests =
     [ TestLabel "foldAggregation" foldAggregation
@@ -351,4 +390,5 @@ tests =
     , TestLabel "distinctNoDuplicates" distinctNoDuplicates
     , TestLabel "distinctAllSameRows" distinctAllSameRows
     , TestLabel "groupByOptionalColumn" groupByOptionalColumn
+    , TestLabel "momentShapeAfterBaseColumnChange" momentShapeAfterBaseColumnChange
     ]

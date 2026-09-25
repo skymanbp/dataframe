@@ -100,9 +100,8 @@ derive :: forall a. (Columnable a) => T.Text -> Expr a -> DataFrame -> DataFrame
 derive name expr df = case interpret @a df (normalize expr) of
     Left e -> throw e
     Right (TColumn value) ->
-        (insertColumn name value df)
-            { derivingExpressions = M.insert name (UExpr expr) (derivingExpressions df)
-            }
+        let df' = insertColumn name value df
+         in df'{derivingExpressions = M.insert name (UExpr expr) (derivingExpressions df')}
 
 {- | O(k) Apply a function to an expression in a dataframe and
 add the result into `alias` column but
@@ -117,11 +116,10 @@ deriveWithExpr ::
 deriveWithExpr name expr df = case interpret @a df (normalize expr) of
     Left e -> throw e
     Right (TColumn value) ->
-        ( Col name
-        , (insertColumn name value df)
-            { derivingExpressions = M.insert name (UExpr expr) (derivingExpressions df)
-            }
-        )
+        let df' = insertColumn name value df
+         in ( Col name
+            , df'{derivingExpressions = M.insert name (UExpr expr) (derivingExpressions df')}
+            )
 
 deriveMany :: [NamedExpr] -> DataFrame -> DataFrame
 deriveMany exprs df =

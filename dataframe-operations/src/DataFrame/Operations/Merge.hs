@@ -8,12 +8,14 @@ module DataFrame.Operations.Merge (
 ) where
 
 import qualified Data.List as L
+import qualified Data.Map as M
 import qualified Data.Text as T
 import qualified DataFrame.Internal.Column as D
 import qualified DataFrame.Internal.DataFrame as D
 import qualified DataFrame.Operations.Core as D
 
 import Data.Maybe
+import DataFrame.Internal.Expression (UExpr (..), getColumns)
 
 {- | Vertically merge two dataframes using shared columns.
 Columns that exist in only one dataframe are padded with Nothing.
@@ -68,7 +70,10 @@ instance Monoid D.DataFrame where
                 (\name acc -> D.insertColumn name (D.unsafeGetColumn name b) acc)
                 (D.columnNames b)
                 a
+        ownExprs =
+            M.filterWithKey
+                (\k (UExpr e) -> all (`M.member` D.columnIndices b) (k : getColumns e))
+                (D.derivingExpressions b)
      in result
-            { D.derivingExpressions =
-                D.derivingExpressions result <> D.derivingExpressions b
+            { D.derivingExpressions = D.derivingExpressions result <> ownExprs
             }

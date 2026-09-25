@@ -53,6 +53,16 @@ insertOverwriteDropsOwnExpr =
                 "sibling column w expression should be preserved"
                 (M.member "w" (DI.derivingExpressions df3))
 
+-- Overwriting a base column removes the expressions that read it.
+insertOverwriteDropsDependentExpr :: Test
+insertOverwriteDropsDependentExpr =
+    let df = D.insertColumn "x" (DI.fromList [10 .. 14 :: Int]) withZ
+     in TestCase
+            ( assertBool
+                "overwriting x should remove z, which reads x"
+                (not $ M.member "z" (DI.derivingExpressions df))
+            )
+
 -- ── derive ────────────────────────────────────────────────────────────────────
 
 -- derive adds the expression to derivingExpressions.
@@ -86,6 +96,22 @@ deriveOverwriteReplacesExpression =
                 (M.size (DI.derivingExpressions df))
             )
 
+-- Re-deriving a base column removes the expressions that read it.
+deriveOverBaseDropsDependentExpr :: Test
+deriveOverBaseDropsDependentExpr =
+    let df = D.derive "x" (F.col @Int "y") withZ
+        (_, df') = D.deriveWithExpr "x" (F.col @Int "y") withZ
+     in TestCase $ do
+            assertBool
+                "re-deriving x should remove z, which reads x"
+                (not $ M.member "z" (DI.derivingExpressions df))
+            assertBool
+                "re-deriving x should record x"
+                (M.member "x" (DI.derivingExpressions df))
+            assertBool
+                "deriveWithExpr over x should remove z, which reads x"
+                (not $ M.member "z" (DI.derivingExpressions df'))
+
 -- ── deriveWithExpr ────────────────────────────────────────────────────────────
 
 -- deriveWithExpr should also track the expression.
@@ -96,6 +122,18 @@ deriveWithExprTracksExpression =
             ( assertBool
                 "deriveWithExpr should record z in derivingExpressions"
                 (M.member "z" (DI.derivingExpressions df))
+            )
+
+-- ── rename ────────────────────────────────────────────────────────────────────
+
+-- Renaming a column onto a name an expression reads removes that expression.
+renameOntoReferencedDropsExpr :: Test
+renameOntoReferencedDropsExpr =
+    let df = D.rename "y" "x" (D.rename "x" "a" withZ)
+     in TestCase
+            ( assertBool
+                "renaming y to x should remove z, which reads x"
+                (not $ M.member "z" (DI.derivingExpressions df))
             )
 
 -- ── showDerivedExpressions ────────────────────────────────────────────────────
@@ -214,14 +252,33 @@ horizontalMergePreservesBoth =
                 (M.size (DI.derivingExpressions merged))
             )
 
+horizontalMergeDropsForeignExprs :: Test
+horizontalMergeDropsForeignExprs =
+    let xy =
+            D.fromNamedColumns
+                [ ("x", DI.fromList [10 .. 14 :: Int])
+                , ("y", DI.fromList [20 .. 24 :: Int])
+                ]
+        zOnly = D.fromNamedColumns [("z", DI.fromList [0 :: Int, 0, 0, 0, 0])]
+     in TestCase $ do
+            assertBool
+                "z reads x and y, which the right frame no longer has"
+                (not $ M.member "z" (DI.derivingExpressions (xy ||| D.select ["z"] withZ)))
+            assertBool
+                "the right frame has no column z, so its z expression must not reach the left z"
+                (not $ M.member "z" (DI.derivingExpressions (zOnly ||| D.rename "z" "w" withZ)))
+
 tests :: [Test]
 tests =
     [ TestLabel "insertPreservesProvenance" insertPreservesProvenance
     , TestLabel "insertOverwriteDropsOwnExpr" insertOverwriteDropsOwnExpr
+    , TestLabel "insertOverwriteDropsDependentExpr" insertOverwriteDropsDependentExpr
     , TestLabel "deriveTracksExpression" deriveTracksExpression
     , TestLabel "deriveManyTracksAll" deriveManyTracksAll
     , TestLabel "deriveOverwriteReplacesExpression" deriveOverwriteReplacesExpression
+    , TestLabel "deriveOverBaseDropsDependentExpr" deriveOverBaseDropsDependentExpr
     , TestLabel "deriveWithExprTracksExpression" deriveWithExprTracksExpression
+    , TestLabel "renameOntoReferencedDropsExpr" renameOntoReferencedDropsExpr
     , TestLabel "showDerivedEmpty" showDerivedEmpty
     , TestLabel "showDerivedContainsName" showDerivedContainsName
     , TestLabel "semiGroupPreservesLeft" semiGroupPreservesLeft
@@ -232,4 +289,5 @@ tests =
     , TestLabel "horizontalMergePreservesLeft" horizontalMergePreservesLeft
     , TestLabel "horizontalMergePreservesRight" horizontalMergePreservesRight
     , TestLabel "horizontalMergePreservesBoth" horizontalMergePreservesBoth
+    , TestLabel "horizontalMergeDropsForeignExprs" horizontalMergeDropsForeignExprs
     ]

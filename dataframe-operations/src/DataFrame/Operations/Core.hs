@@ -502,7 +502,11 @@ renameSafe orig new df
             columnIndex <- M.lookup orig (columnIndices df)
             let origRemoved = M.delete orig (columnIndices df)
             let newAdded = M.insert new columnIndex origRemoved
-            return (Right df{columnIndices = newAdded})
+            let exprs =
+                    M.filter
+                        (\(UExpr e) -> new `notElem` getColumns e)
+                        (M.delete new (derivingExpressions df))
+            return (Right df{columnIndices = newAdded, derivingExpressions = exprs})
 
 data ColumnInfo = ColumnInfo
     { nameOfColumn :: !T.Text
