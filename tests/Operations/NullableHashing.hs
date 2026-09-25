@@ -104,8 +104,7 @@ denseIntGridNoCollisions =
             )
 
 {- | Join-hash robustness: a self inner-join on a dense grid of unique integer
-keys must return exactly one match per row. Joins match purely by hash, so a
-weak hash that collides distinct keys would emit spurious cross-matches.
+keys must return exactly one match per row.
 -}
 joinDenseGridNoCollisions :: Test
 joinDenseGridNoCollisions =

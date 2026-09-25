@@ -6,6 +6,7 @@ module Operations.Join where
 
 import Assertions (assertExpectException)
 import Control.Exception (evaluate)
+import Data.Int (Int64)
 import Data.Text (Text, unpack)
 import qualified DataFrame as D
 import qualified DataFrame.Functions as F
@@ -529,6 +530,157 @@ testBigFullOuterRowCount =
             (D.nRows (fullOuterJoin ["key"] bigLeft bigRight))
         )
 
+-- 0.0001 and 0.0002 share a row hash but are different keys.
+nearLeft :: D.DataFrame
+nearLeft =
+    D.fromNamedColumns
+        [ ("k", D.fromList [0.0001 :: Double, 2.5])
+        , ("a", D.fromList [1 :: Int, 2])
+        ]
+
+nearRight :: D.DataFrame
+nearRight =
+    D.fromNamedColumns
+        [ ("k", D.fromList [0.0002 :: Double, 2.5])
+        , ("b", D.fromList [10 :: Int, 20])
+        ]
+
+nearInnerExpected :: D.DataFrame
+nearInnerExpected =
+    D.fromNamedColumns
+        [ ("k", D.fromList [2.5 :: Double])
+        , ("a", D.fromList [2 :: Int])
+        , ("b", D.fromList [20 :: Int])
+        ]
+
+testInnerJoinHashOnlyMatch :: Test
+testInnerJoinHashOnlyMatch =
+    TestCase
+        ( assertEqual
+            "Inner join does not pair keys that only share a hash"
+            nearInnerExpected
+            (D.sortBy [D.Asc (F.col @Double "k")] (innerJoin ["k"] nearLeft nearRight))
+        )
+
+testLeftJoinHashOnlyMatch :: Test
+testLeftJoinHashOnlyMatch =
+    TestCase
+        ( assertEqual
+            "Left join keeps a left row whose only candidate has a different key"
+            ( D.fromNamedColumns
+                [ ("k", D.fromList [0.0001 :: Double, 2.5])
+                , ("a", D.fromList [1 :: Int, 2])
+                , ("b", D.fromList [Nothing, Just 20 :: Maybe Int])
+                ]
+            )
+            (D.sortBy [D.Asc (F.col @Double "k")] (leftJoin ["k"] nearLeft nearRight))
+        )
+
+testRightJoinHashOnlyMatch :: Test
+testRightJoinHashOnlyMatch =
+    TestCase
+        ( assertEqual
+            "Right join keeps a right row whose only candidate has a different key"
+            ( D.fromNamedColumns
+                [ ("k", D.fromList [0.0002 :: Double, 2.5])
+                , ("b", D.fromList [10 :: Int, 20])
+                , ("a", D.fromList [Nothing, Just 2 :: Maybe Int])
+                ]
+            )
+            (D.sortBy [D.Asc (F.col @Double "k")] (rightJoin ["k"] nearLeft nearRight))
+        )
+
+testFullOuterJoinHashOnlyMatch :: Test
+testFullOuterJoinHashOnlyMatch =
+    TestCase
+        ( assertEqual
+            "Full outer join keeps both rows of a hash-only match"
+            ( D.fromNamedColumns
+                [ ("k", D.fromList [0.0001 :: Double, 0.0002, 2.5])
+                , ("a", D.fromList [Just 1, Nothing, Just 2 :: Maybe Int])
+                , ("b", D.fromList [Nothing, Just 10, Just 20 :: Maybe Int])
+                ]
+            )
+            (D.sortBy [D.Asc (F.col @Double "k")] (fullOuterJoin ["k"] nearLeft nearRight))
+        )
+
+tnearLeft :: DT.TypedDataFrame ['("k", Double), '("a", Int)]
+tnearLeft = either (error . show) id (DT.freezeWithError nearLeft)
+
+tnearRight :: DT.TypedDataFrame ['("k", Double), '("b", Int)]
+tnearRight = either (error . show) id (DT.freezeWithError nearRight)
+
+testInnerJoinTypedHashOnlyMatch :: Test
+testInnerJoinTypedHashOnlyMatch =
+    TestCase
+        ( assertEqual
+            "Typed inner join does not pair keys that only share a hash"
+            nearInnerExpected
+            ( DT.thaw $
+                DT.sortBy [DT.asc (DT.col @"k")] (DT.innerJoin @'["k"] tnearLeft tnearRight)
+            )
+        )
+
+-- (1, 0) and (2, 27021597830225920) have the same two-column row hash.
+testInnerJoinCompositeHashCollision :: Test
+testInnerJoinCompositeHashCollision =
+    TestCase
+        ( assertEqual
+            "Inner join does not pair colliding composite Int keys"
+            0
+            ( D.nRows
+                ( innerJoin
+                    ["a", "b"]
+                    (D.fromNamedColumns [("a", D.fromList [1 :: Int]), ("b", D.fromList [0 :: Int])])
+                    ( D.fromNamedColumns
+                        [("a", D.fromList [2 :: Int]), ("b", D.fromList [27021597830225920 :: Int])]
+                    )
+                )
+            )
+        )
+
+testInnerJoinIntInt64Keys :: Test
+testInnerJoinIntInt64Keys =
+    TestCase
+        ( assertEqual
+            "Inner join matches Int keys against equal Int64 keys"
+            2
+            ( D.nRows
+                ( innerJoin
+                    ["k"]
+                    (D.fromNamedColumns [("k", D.fromList [1 :: Int, 2, 3])])
+                    (D.fromNamedColumns [("k", D.fromList [2 :: Int64, 3, 4])])
+                )
+            )
+        )
+
+-- Above joinStrategyThreshold, so the parallel and sort-merge kernels run.
+largeNearRows :: Int
+largeNearRows = 500001
+
+largeNear :: Double -> D.DataFrame
+largeNear offset =
+    D.fromNamedColumns
+        [("k", D.fromList [fromIntegral i + offset | i <- [0 .. largeNearRows - 1]])]
+
+testLargeInnerJoinHashOnlyMatch :: Test
+testLargeInnerJoinHashOnlyMatch =
+    TestCase
+        ( assertEqual
+            "Large inner join does not pair keys that only share a hash"
+            0
+            (D.nRows (innerJoin ["k"] (largeNear 0.0001) (largeNear 0.0002)))
+        )
+
+testLargeFullOuterJoinHashOnlyMatch :: Test
+testLargeFullOuterJoinHashOnlyMatch =
+    TestCase
+        ( assertEqual
+            "Large full outer join keeps both rows of every hash-only match"
+            (2 * largeNearRows)
+            (D.nRows (fullOuterJoin ["k"] (largeNear 0.0001) (largeNear 0.0002)))
+        )
+
 tests :: [Test]
 tests =
     [ TestLabel "innerJoin" testInnerJoin
@@ -559,4 +711,13 @@ tests =
     , TestLabel "bigInnerJoinRowCount" testBigInnerJoinRowCount
     , TestLabel "bigLeftJoinRowCount" testBigLeftJoinRowCount
     , TestLabel "bigFullOuterRowCount" testBigFullOuterRowCount
+    , TestLabel "innerJoinHashOnlyMatch" testInnerJoinHashOnlyMatch
+    , TestLabel "leftJoinHashOnlyMatch" testLeftJoinHashOnlyMatch
+    , TestLabel "rightJoinHashOnlyMatch" testRightJoinHashOnlyMatch
+    , TestLabel "fullOuterJoinHashOnlyMatch" testFullOuterJoinHashOnlyMatch
+    , TestLabel "innerJoinTypedHashOnlyMatch" testInnerJoinTypedHashOnlyMatch
+    , TestLabel "innerJoinCompositeHashCollision" testInnerJoinCompositeHashCollision
+    , TestLabel "innerJoinIntInt64Keys" testInnerJoinIntInt64Keys
+    , TestLabel "largeInnerJoinHashOnlyMatch" testLargeInnerJoinHashOnlyMatch
+    , TestLabel "largeFullOuterJoinHashOnlyMatch" testLargeFullOuterJoinHashOnlyMatch
     ]
