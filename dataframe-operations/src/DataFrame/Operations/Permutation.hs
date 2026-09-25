@@ -27,11 +27,13 @@ import Control.Exception (throw)
 import Control.Monad.ST (runST)
 import Data.Type.Equality (testEquality, (:~:) (Refl))
 import Data.Vector.Internal.Check (HasCallStack)
-import DataFrame.Errors (DataFrameException (..))
+import DataFrame.Errors (DataFrameException (..), TypeErrorContext (..))
 import DataFrame.Internal.Column (
     Column (..),
     Columnable,
     atIndicesStable,
+    columnTypeString,
+    hasElemType,
     materializeMerged,
  )
 import DataFrame.Internal.Data.PackedText (packedSlice, sliceCmpBytes)
@@ -44,7 +46,7 @@ import DataFrame.Internal.Expression (Expr (Col), getColumns)
 import DataFrame.Operations.Core (dimensions)
 import DataFrame.Operations.Transformations (derive)
 import System.Random (Random (randomR), RandomGen)
-import Type.Reflection (typeRep)
+import Type.Reflection (TypeRep, typeRep)
 
 -- | Sort order taken as a parameter by the 'sortBy' function.
 data SortOrder where
@@ -125,43 +127,60 @@ The Ord dictionary is recovered from the SortOrder GADT.
 sortOrderComparator :: SortOrder -> DataFrame -> Int -> Int -> Ordering
 sortOrderComparator (Asc (Col name :: Expr a)) df =
     case unsafeGetColumn name df of
-        BoxedColumn _ (v :: V.Vector b) -> case testEquality (typeRep @a) (typeRep @b) of
+        c@(BoxedColumn _ (v :: V.Vector b)) -> case testEquality (typeRep @a) (typeRep @b) of
             Just Refl -> \i j -> compare (v `V.unsafeIndex` i) (v `V.unsafeIndex` j)
-            Nothing -> \_ _ -> EQ
-        UnboxedColumn _ (v :: VU.Vector b) -> case testEquality (typeRep @a) (typeRep @b) of
+            Nothing -> unsortableKey name (typeRep @a) c
+        c@(UnboxedColumn _ (v :: VU.Vector b)) -> case testEquality (typeRep @a) (typeRep @b) of
             Just Refl -> \i j -> compare (v `VU.unsafeIndex` i) (v `VU.unsafeIndex` j)
-            Nothing -> \_ _ -> EQ
-        PackedText _ p -> case testEquality (typeRep @a) (typeRep @T.Text) of
+            Nothing -> unsortableKey name (typeRep @a) c
+        c@(PackedText _ p) -> case testEquality (typeRep @a) (typeRep @T.Text) of
             Just Refl -> \i j ->
                 let (ai, oi, li) = packedSlice p i
                     (aj, oj, lj) = packedSlice p j
                  in sliceCmpBytes ai oi li aj oj lj
-            Nothing -> \_ _ -> EQ
+            Nothing -> unsortableKey name (typeRep @a) c
         c@(MergedColumn _ _) -> case materializeMerged c of
             BoxedColumn _ (v :: V.Vector b) -> case testEquality (typeRep @a) (typeRep @b) of
                 Just Refl -> \i j -> compare (v `V.unsafeIndex` i) (v `V.unsafeIndex` j)
-                Nothing -> \_ _ -> EQ
-            _ -> \_ _ -> EQ
+                Nothing -> unsortableKey name (typeRep @a) c
+            _ -> throw (InternalException "sortBy: unsupported merged column")
 sortOrderComparator (Desc (Col name :: Expr a)) df =
     case unsafeGetColumn name df of
-        BoxedColumn _ (v :: V.Vector b) -> case testEquality (typeRep @a) (typeRep @b) of
+        c@(BoxedColumn _ (v :: V.Vector b)) -> case testEquality (typeRep @a) (typeRep @b) of
             Just Refl -> \i j -> compare (v `V.unsafeIndex` j) (v `V.unsafeIndex` i)
-            Nothing -> \_ _ -> EQ
-        UnboxedColumn _ (v :: VU.Vector b) -> case testEquality (typeRep @a) (typeRep @b) of
+            Nothing -> unsortableKey name (typeRep @a) c
+        c@(UnboxedColumn _ (v :: VU.Vector b)) -> case testEquality (typeRep @a) (typeRep @b) of
             Just Refl -> \i j -> compare (v `VU.unsafeIndex` j) (v `VU.unsafeIndex` i)
-            Nothing -> \_ _ -> EQ
-        PackedText _ p -> case testEquality (typeRep @a) (typeRep @T.Text) of
+            Nothing -> unsortableKey name (typeRep @a) c
+        c@(PackedText _ p) -> case testEquality (typeRep @a) (typeRep @T.Text) of
             Just Refl -> \i j ->
                 let (ai, oi, li) = packedSlice p i
                     (aj, oj, lj) = packedSlice p j
                  in sliceCmpBytes aj oj lj ai oi li
-            Nothing -> \_ _ -> EQ
+            Nothing -> unsortableKey name (typeRep @a) c
         c@(MergedColumn _ _) -> case materializeMerged c of
             BoxedColumn _ (v :: V.Vector b) -> case testEquality (typeRep @a) (typeRep @b) of
                 Just Refl -> \i j -> compare (v `V.unsafeIndex` j) (v `V.unsafeIndex` i)
-                Nothing -> \_ _ -> EQ
-            _ -> \_ _ -> EQ
+                Nothing -> unsortableKey name (typeRep @a) c
+            _ -> throw (InternalException "sortBy: unsupported merged column")
 sortOrderComparator _ _ = error "Sorting on compound column"
+
+-- | For a key whose type is not the column's stored type.
+unsortableKey ::
+    forall a c. (Columnable a) => T.Text -> TypeRep a -> Column -> c
+unsortableKey name userT column
+    | hasElemType @a column = throw ExpectedNonNullableException
+    | otherwise =
+        throw $
+            TypeMismatchException
+                ( MkTypeErrorContext
+                    { userType = Right userT
+                    , expectedType = Left (columnTypeString column)
+                    , errorColumnName = Just (T.unpack name)
+                    , callingFunctionName = Just "sortBy"
+                    } ::
+                    TypeErrorContext a ()
+                )
 
 -- | Sort row indices using a comparator function.
 sortIndices :: (Int -> Int -> Ordering) -> Int -> VU.Vector Int
