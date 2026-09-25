@@ -4,11 +4,16 @@
 
 module Operations.Subset where
 
+import Assertions (assertExpectException)
+import Control.Exception (evaluate)
 import qualified Data.Text as T
+import qualified Data.Vector.Unboxed as VU
 import qualified DataFrame as D
 import qualified DataFrame.Internal.Column as Col
 import DataFrame.Internal.DataFrame
+import DataFrame.Operations.Aggregation (selectIndices)
 import DataFrame.Operations.Merge ()
+import DataFrame.Operations.Subset (rowsAtIndices)
 import GenDataFrame ()
 import System.Random
 import Test.HUnit
@@ -65,6 +70,10 @@ prop_rangeClampsToBounds df a b =
     lo = min (max a 0) rows
     hi = min (max b lo) rows
     expected = hi - lo
+
+prop_selectRowsIdentity :: DataFrame -> Bool
+prop_selectRowsIdentity df =
+    D.selectRows [0 .. fst (dataframeDimensions df) - 1] df == df
 
 prop_selectAll :: DataFrame -> Bool
 prop_selectAll df = D.select (D.columnNames df) df == df
@@ -221,6 +230,26 @@ unit_rangeStartBeforeZero =
             (getColumn "x" (D.range (-5, 3) tenRows))
         )
 
+unit_selectRowsOutOfBounds :: Test
+unit_selectRowsOutOfBounds =
+    TestCase $ do
+        assertExpectException
+            "[Error Case]"
+            "Row indexes out of bounds: [10]"
+            (evaluate (D.selectRows [0, 10] tenRows))
+        assertExpectException
+            "[Error Case]"
+            "Row indexes out of bounds: [-1]"
+            (evaluate (D.selectRows [-1] tenRows))
+        assertExpectException
+            "[Error Case]"
+            "Row indexes out of bounds: [10]"
+            (evaluate (rowsAtIndices (VU.fromList [10]) tenRows))
+        assertExpectException
+            "[Error Case]"
+            "Row indexes out of bounds: [10]"
+            (evaluate (selectIndices (VU.fromList [10]) tenRows))
+
 hunitTests :: [Test]
 hunitTests =
     [ TestLabel "unit_stratifiedSample_full" unit_stratifiedSample_full
@@ -232,6 +261,7 @@ hunitTests =
     , TestLabel "unit_rangeEndPastEnd" unit_rangeEndPastEnd
     , TestLabel "unit_rangeExtremeEndpoints" unit_rangeExtremeEndpoints
     , TestLabel "unit_rangeStartBeforeZero" unit_rangeStartBeforeZero
+    , TestLabel "unit_selectRowsOutOfBounds" unit_selectRowsOutOfBounds
     ]
 
 -- Properties whose shape does not fit [DataFrame -> Bool].
@@ -250,6 +280,7 @@ tests =
     , prop_dropLastAll
     , prop_rangeEmpty
     , prop_rangeFull
+    , prop_selectRowsIdentity
     , prop_selectAll
     , prop_selectEmpty
     , prop_excludeEmpty
