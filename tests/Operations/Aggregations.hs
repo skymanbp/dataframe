@@ -251,6 +251,80 @@ aggregationOnNoRows =
             )
         )
 
+momentData :: D.DataFrame
+momentData =
+    D.fromNamedColumns
+        [ ("k", DI.fromList [1 :: Int, 1, 2])
+        , ("x", DI.fromList [1 :: Double, 2, 3])
+        , ("y", DI.fromList [-1 :: Double, -2, -3])
+        ]
+
+momentShapeKeepsUnaryOp :: Test
+momentShapeKeepsUnaryOp =
+    TestCase
+        ( assertEqual
+            "A unary op inside the six sum moment shape is applied"
+            ( D.fromNamedColumns
+                [ ("k", DI.fromList [1 :: Int, 2])
+                , ("n", DI.fromList [2 :: Int, 1])
+                , ("sx", DI.fromList [3 :: Double, 3])
+                , ("say", DI.fromList [3 :: Double, 3])
+                , ("sxx", DI.fromList [5 :: Double, 9])
+                , ("syy", DI.fromList [5 :: Double, 9])
+                , ("sxy", DI.fromList [-5 :: Double, -9])
+                ]
+            )
+            ( momentData
+                & D.groupBy ["k"]
+                & D.aggregate
+                    [ F.count x `as` "n"
+                    , F.sum x `as` "sx"
+                    , F.sum (abs y) `as` "say"
+                    , F.sum (x * x) `as` "sxx"
+                    , F.sum (y * y) `as` "syy"
+                    , F.sum (x * y) `as` "sxy"
+                    ]
+                & D.sortBy [D.Asc (F.col @Int "k")]
+            )
+        )
+  where
+    x = F.col @Double "x"
+    y = F.col @Double "y"
+
+momentShapeKeepsDerivedUnaryOp :: Test
+momentShapeKeepsDerivedUnaryOp =
+    TestCase
+        ( assertEqual
+            "A column derived by a unary op inside the six sum moment shape keeps its values"
+            ( D.fromNamedColumns
+                [ ("k", DI.fromList [1 :: Int, 2])
+                , ("n", DI.fromList [2 :: Int, 1])
+                , ("sx", DI.fromList [3 :: Double, 3])
+                , ("sny", DI.fromList [3 :: Double, 3])
+                , ("sxx", DI.fromList [5 :: Double, 9])
+                , ("snyy", DI.fromList [5 :: Double, 9])
+                , ("sxny", DI.fromList [5 :: Double, 9])
+                ]
+            )
+            ( momentData
+                & D.derive "ny" (negate y)
+                & D.groupBy ["k"]
+                & D.aggregate
+                    [ F.count x `as` "n"
+                    , F.sum x `as` "sx"
+                    , F.sum ny `as` "sny"
+                    , F.sum (x * x) `as` "sxx"
+                    , F.sum (ny * ny) `as` "snyy"
+                    , F.sum (x * ny) `as` "sxny"
+                    ]
+                & D.sortBy [D.Asc (F.col @Int "k")]
+            )
+        )
+  where
+    x = F.col @Double "x"
+    y = F.col @Double "y"
+    ny = F.col @Double "ny"
+
 -- distinct
 
 distinctRemovesDuplicates :: Test
@@ -347,6 +421,8 @@ tests =
     , TestLabel
         "aggregationOnNoRows"
         aggregationOnNoRows
+    , TestLabel "momentShapeKeepsUnaryOp" momentShapeKeepsUnaryOp
+    , TestLabel "momentShapeKeepsDerivedUnaryOp" momentShapeKeepsDerivedUnaryOp
     , TestLabel "distinctRemovesDuplicates" distinctRemovesDuplicates
     , TestLabel "distinctNoDuplicates" distinctNoDuplicates
     , TestLabel "distinctAllSameRows" distinctAllSameRows

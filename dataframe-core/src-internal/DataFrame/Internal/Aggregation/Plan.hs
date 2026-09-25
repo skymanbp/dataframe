@@ -35,6 +35,7 @@ import DataFrame.Internal.Expression (
     BinaryOp (binaryCommutative, binaryName),
     Expr (..),
     UExpr (..),
+    UnaryOp (unaryName),
  )
 import Type.Reflection (Typeable, typeRep)
 
@@ -196,7 +197,8 @@ resolveTerm exprs = go (8 :: Int)
         Col nm -> case M.lookup nm exprs of
             Just ue -> go (fuel - 1) ue
             Nothing -> Just (Lin nm)
-        Unary _ inner -> go (fuel - 1) (UExpr inner)
+        Unary op inner
+            | unaryName op == "toDouble" -> go (fuel - 1) (UExpr inner)
         Binary op l r
             | binaryName op == "mult" && binaryCommutative op -> do
                 Lin a <- go (fuel - 1) (UExpr l)
