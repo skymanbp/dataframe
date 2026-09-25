@@ -36,6 +36,7 @@ data DataFrameException where
     InternalException :: T.Text -> DataFrameException
     ExpectedNonNullableException :: DataFrameException
     NonColumnReferenceException :: T.Text -> DataFrameException
+    RowsOutOfBoundsException :: [Int] -> Int -> DataFrameException
     UnaggregatedException :: T.Text -> DataFrameException
     WrongQuantileNumberException :: Int -> DataFrameException
     WrongQuantileIndexException :: VU.Vector Int -> Int -> DataFrameException
@@ -57,6 +58,7 @@ instance Show DataFrameException where
                 errorString
     show (ColumnsNotFoundException columnNames callPoint availableColumns) = columnsNotFound columnNames callPoint availableColumns
     show (EmptyDataSetException callPoint) = emptyDataSetError callPoint
+    show (RowsOutOfBoundsException ixs n) = rowsOutOfBoundsError ixs n
     show (WrongQuantileNumberException q) = wrongQuantileNumberError q
     show (WrongQuantileIndexException qs q) = wrongQuantileIndexError qs q
     show (InternalException msg) = "Internal error: " ++ T.unpack msg
@@ -125,6 +127,15 @@ emptyDataSetError callPoint =
     red "\n\n[ERROR] "
         ++ T.unpack callPoint
         ++ " cannot be called on empty data sets"
+
+rowsOutOfBoundsError :: [Int] -> Int -> String
+rowsOutOfBoundsError ixs n =
+    red "\n\n[ERROR] "
+        ++ "Row indexes out of bounds: "
+        ++ show ixs
+        ++ " (the dataframe has "
+        ++ show n
+        ++ " rows)"
 
 wrongQuantileNumberError :: Int -> String
 wrongQuantileNumberError q =

@@ -456,13 +456,7 @@ selectBy xs df = select finalSelection df
 > selectRows [0, 2, 4] df
 -}
 selectRows :: [Int] -> DataFrame -> DataFrame
-selectRows ixs df =
-    df
-        { columns = V.map (atIndicesStable ixs') (columns df)
-        , dataframeDimensions = (VU.length ixs', snd (dataframeDimensions df))
-        }
-  where
-    ixs' = VU.fromList ixs
+selectRows = rowsAtIndices . VU.fromList
 
 {- | O(n) inverse of select
 
@@ -563,11 +557,17 @@ groupByIndices col' =
 
 -- | Select rows at the given indices from all columns.
 rowsAtIndices :: VU.Vector Int -> DataFrame -> DataFrame
-rowsAtIndices ixs df =
-    df
-        { columns = V.map (atIndicesStable ixs) (columns df)
-        , dataframeDimensions = (VU.length ixs, snd (dataframeDimensions df))
-        }
+rowsAtIndices ixs df
+    | VU.any outOfBounds ixs =
+        throw (RowsOutOfBoundsException (VU.toList (VU.filter outOfBounds ixs)) r)
+    | otherwise =
+        df
+            { columns = V.map (atIndicesStable ixs) (columns df)
+            , dataframeDimensions = (VU.length ixs, snd (dataframeDimensions df))
+            }
+  where
+    r = fst (dataframeDimensions df)
+    outOfBounds i = i < 0 || i >= r
 
 {- | Sample a dataframe, preserving per-stratum proportions.
 

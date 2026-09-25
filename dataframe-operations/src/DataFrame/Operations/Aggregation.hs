@@ -39,7 +39,6 @@ import DataFrame.Internal.Aggregation.Reduction (Reduction (..))
 import DataFrame.Internal.Column (
     Column (..),
     TypedColumn (..),
-    atIndicesStable,
     atIndicesStableMulti,
  )
 import DataFrame.Internal.DataFrame (
@@ -236,11 +235,7 @@ interpretNamed gdf (_, UExpr (expr :: Expr a)) =
         Right (Aggregated (TColumn col)) -> col
 
 selectIndices :: VU.Vector Int -> DataFrame -> DataFrame
-selectIndices xs df =
-    df
-        { columns = V.map (atIndicesStable xs) (columns df)
-        , dataframeDimensions = (VU.length xs, V.length (columns df))
-        }
+selectIndices = rowsAtIndices
 
 -- | Filter out all non-unique values in a dataframe.
 distinct :: DataFrame -> DataFrame
