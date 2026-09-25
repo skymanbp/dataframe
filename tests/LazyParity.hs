@@ -21,7 +21,7 @@ import qualified DataFrame.Internal.Expression as E
 import DataFrame.Lazy (SortOrder (Descending))
 import qualified DataFrame.Lazy as L
 import qualified DataFrame.Operations.Aggregation as Agg
-import DataFrame.Operations.Join (JoinType (LEFT))
+import DataFrame.Operations.Join (JoinType (FULL_OUTER, INNER, LEFT))
 import qualified DataFrame.Operations.Join as Join
 import qualified DataFrame.Operations.Permutation as Perm
 import DataFrame.Schema (Schema (..), schemaType)
@@ -117,6 +117,28 @@ joinPipelineParity =
                     (show eager)
                     (show lazy)
 
+collidingJoinParity :: Test
+collidingJoinParity =
+    TestList
+        [ TestCase $ do
+            lazy <-
+                L.runDataFrame
+                    (L.join jt "key" "key" (L.fromDataFrame left) (L.fromDataFrame right))
+            assertEqual (show jt) (show (Join.join jt ["key"] left right)) (show lazy)
+        | jt <- [INNER, FULL_OUTER]
+        ]
+  where
+    left =
+        D.fromNamedColumns
+            [ ("key", DI.fromList ["K0" :: Text, "K1", "K2"])
+            , ("X", DI.fromList ["LX0" :: Text, "LX1", "LX2"])
+            ]
+    right =
+        D.fromNamedColumns
+            [ ("key", DI.fromList ["K0" :: Text, "K1", "K3"])
+            , ("X", DI.fromList ["RX0" :: Text, "RX1", "RX3"])
+            ]
+
 -- | Pure groupBy customer_id -> sum(amount), count, sort desc.
 groupByPipelineParity :: Test
 groupByPipelineParity =
@@ -184,4 +206,9 @@ streamingMeanParity =
             ]
 
 tests :: [Test]
-tests = [joinPipelineParity, groupByPipelineParity, streamingMeanParity]
+tests =
+    [ joinPipelineParity
+    , collidingJoinParity
+    , groupByPipelineParity
+    , streamingMeanParity
+    ]

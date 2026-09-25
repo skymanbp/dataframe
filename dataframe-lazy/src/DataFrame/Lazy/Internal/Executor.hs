@@ -698,16 +698,12 @@ splitCsvAtNewlines n path = do
             Nothing -> BS.length body
 
 {- | Route a join to 'Operations.Join', renaming the right key when the names
-differ. 'Join.join' keeps its first argument, so LEFT/RIGHT must pass 'leftDf'
-first to retain the intended side; symmetric INNER/FULL_OUTER pass @rightDf@ first.
+differ.
 -}
 performJoin ::
     Join.JoinType -> T.Text -> T.Text -> D.DataFrame -> D.DataFrame -> D.DataFrame
 performJoin jt leftKey rightKey leftDf rightDf =
-    case jt of
-        Join.LEFT -> Join.join jt [leftKey] leftDf rightRenamed
-        Join.RIGHT -> Join.join jt [leftKey] leftDf rightRenamed
-        _ -> Join.join jt [leftKey] rightRenamed leftDf
+    Join.join jt [leftKey] leftDf rightRenamed
   where
     rightRenamed
         | leftKey == rightKey = rightDf

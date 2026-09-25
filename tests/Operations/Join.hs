@@ -346,6 +346,53 @@ testOuterJoinWithCollisions =
             (D.sortBy [D.Asc (F.col @Text "key")] (fullOuterJoin ["key"] dfL dfR))
         )
 
+tdfL :: DT.TypedDataFrame ['("key", Text), '("X", Text), '("Lonly", Text)]
+tdfL = either (error . show) id (DT.freezeWithError dfL)
+
+tdfR :: DT.TypedDataFrame ['("key", Text), '("X", Text), '("Ronly", Int)]
+tdfR = either (error . show) id (DT.freezeWithError dfR)
+
+testInnerJoinTypedWithCollisions :: Test
+testInnerJoinTypedWithCollisions =
+    TestCase
+        ( assertEqual
+            "Test typed inner join with colliding columns"
+            ( D.fromNamedColumns
+                [ ("key", D.fromList ["K0" :: Text, "K1"])
+                , ("X", D.fromList [These "LX0" "RX0" :: These Text Text, These "LX1" "RX1"])
+                , ("Lonly", D.fromList ["L0" :: Text, "L1"])
+                , ("Ronly", D.fromList [10 :: Int, 11])
+                ]
+            )
+            (DT.thaw $ DT.sortBy [DT.asc (DT.col @"key")] (DT.innerJoin @'["key"] tdfL tdfR))
+        )
+
+testOuterJoinTypedWithCollisions :: Test
+testOuterJoinTypedWithCollisions =
+    TestCase
+        ( assertEqual
+            "Test typed full outer join with colliding columns"
+            ( D.fromNamedColumns
+                [ ("key", D.fromList ["K0" :: Text, "K1", "K2", "K3"])
+                ,
+                    ( "X"
+                    , D.fromList
+                        [ Just (These "LX0" "RX0") :: Maybe (These Text Text)
+                        , Just (These "LX1" "RX1")
+                        , Just (This "LX2")
+                        , Just (That "RX3")
+                        ]
+                    )
+                , ("Lonly", D.fromList [Just "L0" :: Maybe Text, Just "L1", Just "L2", Nothing])
+                , ("Ronly", D.fromList [Just 10 :: Maybe Int, Just 11, Nothing, Just 13])
+                ]
+            )
+            ( D.sortBy
+                [D.Asc (F.col @Text "key")]
+                (DT.thaw (DT.fullOuterJoin @'["key"] tdfL tdfR))
+            )
+        )
+
 testInnerJoinMissingKey :: Test
 testInnerJoinMissingKey =
     TestCase $
@@ -544,6 +591,8 @@ tests =
     , TestLabel "leftJoinWithCollisions" testLeftJoinWithCollisions
     , TestLabel "rightJoinWithCollisions" testRightJoinWithCollisions
     , TestLabel "outerJoinWithCollisions" testOuterJoinWithCollisions
+    , TestLabel "innerJoinTypedWithCollisions" testInnerJoinTypedWithCollisions
+    , TestLabel "outerJoinTypedWithCollisions" testOuterJoinTypedWithCollisions
     , TestLabel "innerJoinMissingKey" testInnerJoinMissingKey
     , TestLabel "leftJoinMissingKey" testLeftJoinMissingKey
     , TestLabel "rightJoinMissingKey" testRightJoinMissingKey
