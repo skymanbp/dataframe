@@ -135,6 +135,28 @@ testFitRejectsNullable = TestCase $ do
             assertBool "error names the nullable column x" ("x" `isInfixOf` msg)
         Right _ -> assertFailure "expected a nullable-input error for the Maybe Double feature"
 
+testSampleWeightsLength :: Test
+testSampleWeightsLength = TestCase $ do
+    let weighted ws = defaultSolverConfig{scSampleWeights = Just (VU.fromList ws)}
+        lasso cfg = regCoef (fit (LinearConfig (Lasso 0.1) cfg) (F.col @Double "y") regDF)
+        logistic cfg =
+            lmWeights
+                (V.head (lgModels (fit (LogisticConfig cfg) (F.col @Int "label") clsDF)))
+        rejects label x = do
+            result <- try (evaluate x) :: IO (Either DataFrameException Double)
+            case result of
+                Left e -> assertBool label ("scSampleWeights" `isInfixOf` show e)
+                Right _ -> assertFailure (label ++ ": expected a weight length error")
+    rejects "lasso, 3 weights for 8 rows" (VU.sum (lasso (weighted [1, 1, 1])))
+    rejects
+        "lasso, 9 weights for 8 rows"
+        (VU.sum (lasso (weighted (replicate 9 1))))
+    rejects "logistic, 2 weights for 8 rows" (VU.sum (logistic (weighted [1, 1])))
+    assertEqual
+        "one unit weight per row matches the unweighted fit"
+        (lasso defaultSolverConfig)
+        (lasso (weighted (replicate 8 1)))
+
 testRidgeShrinks :: Test
 testRidgeShrinks = TestCase $ do
     let r0 =
@@ -238,6 +260,7 @@ tests =
     [ testOLS
     , testFitRequiresDouble
     , testFitRejectsNullable
+    , testSampleWeightsLength
     , testRidgeShrinks
     , testLogistic
     , testLogisticEnumLabel
