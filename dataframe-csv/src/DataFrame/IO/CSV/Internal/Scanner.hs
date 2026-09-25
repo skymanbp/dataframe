@@ -13,7 +13,7 @@ module DataFrame.IO.CSV.Internal.Scanner (
     termEol,
     termEof,
     withField,
-    withStripC8,
+    withStripUtf8,
     withStripAscii,
     unescapeQuotes,
     isBlankRecordAt,
@@ -117,22 +117,28 @@ unescapeQuotes bs !s !e = BSI.unsafeCreateUptoN (e - s) (go s 0)
             pokeByteOff (dst :: Ptr Word8) j w
             if w == quote then go (i + 2) (j + 1) dst else go (i + 1) (j + 1) dst
 
-{- | Strip with @Data.ByteString.Char8.strip@ semantics (Latin-1
-whitespace: HT..CR, space and NBSP 0xA0) and continue with the
-stripped range.
+{- | Strip @[s0, e0)@ as @T.strip . decodeUtf8Lenient@ would, on raw
+bytes: ASCII whitespace and whole UTF-8 encodings of U+00A0 and the
+@Zs@ spaces. Multi-byte sequences are never split.
 -}
-{-# INLINE withStripC8 #-}
-withStripC8 :: BS.ByteString -> Int -> Int -> (Int -> Int -> r) -> r
-withStripC8 bs !s0 !e0 k = k s e
+{-# INLINE withStripUtf8 #-}
+withStripUtf8 :: BS.ByteString -> Int -> Int -> (Int -> Int -> r) -> r
+withStripUtf8 bs !s0 !e0 k = k s e
   where
-    isC8Space w = w == 32 || (w - 9) <= 4 || w == 160
+    at = BSU.unsafeIndex bs
     s = skipF s0
     e = skipB e0
     skipF !i
-        | i < e0 && isC8Space (BSU.unsafeIndex bs i) = skipF (i + 1)
+        | i < e0 && isAsciiSpace (at i) = skipF (i + 1)
+        | i + 1 < e0 && isNbsp (at i) (at (i + 1)) = skipF (i + 2)
+        | i + 2 < e0 && isSpace3 (at i) (at (i + 1)) (at (i + 2)) =
+            skipF (i + 3)
         | otherwise = i
     skipB !i
-        | i > s && isC8Space (BSU.unsafeIndex bs (i - 1)) = skipB (i - 1)
+        | i > s && isAsciiSpace (at (i - 1)) = skipB (i - 1)
+        | i - 1 > s && isNbsp (at (i - 2)) (at (i - 1)) = skipB (i - 2)
+        | i - 2 > s && isSpace3 (at (i - 3)) (at (i - 2)) (at (i - 1)) =
+            skipB (i - 3)
         | otherwise = i
 
 {- | Strip ASCII whitespace (the ASCII subset of @Data.Text.strip@) and
@@ -143,7 +149,6 @@ continue with the stripped range. Callers must fall back to a full
 withStripAscii :: BS.ByteString -> Int -> Int -> (Int -> Int -> r) -> r
 withStripAscii bs !s0 !e0 k = k s e
   where
-    isAsciiSpace w = w == 32 || (w - 9) <= 4
     s = skipF s0
     e = skipB e0
     skipF !i
@@ -152,3 +157,22 @@ withStripAscii bs !s0 !e0 k = k s e
     skipB !i
         | i > s && isAsciiSpace (BSU.unsafeIndex bs (i - 1)) = skipB (i - 1)
         | otherwise = i
+
+isAsciiSpace :: Word8 -> Bool
+isAsciiSpace w = w == 32 || (w - 9) <= 4
+{-# INLINE isAsciiSpace #-}
+
+isNbsp :: Word8 -> Word8 -> Bool
+isNbsp b0 b1 = b0 == 0xC2 && b1 == 0xA0
+{-# INLINE isNbsp #-}
+
+-- | U+1680, U+2000..U+200A, U+202F, U+205F or U+3000.
+isSpace3 :: Word8 -> Word8 -> Word8 -> Bool
+isSpace3 b0 b1 b2 = case b0 of
+    0xE2 ->
+        (b1 == 0x80 && ((b2 >= 0x80 && b2 <= 0x8A) || b2 == 0xAF))
+            || (b1 == 0x81 && b2 == 0x9F)
+    0xE3 -> b1 == 0x80 && b2 == 0x80
+    0xE1 -> b1 == 0x9A && b2 == 0x80
+    _ -> False
+{-# INLINE isSpace3 #-}

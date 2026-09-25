@@ -64,7 +64,7 @@ data Sink
     | SinkBS !SliceCol
 
 {- | Growable cell store for inferred columns: per cell a @(start, end)@
-offset pair into the input (already Char8-stripped) and a 0\/1 validity
+offset pair into the input (already whitespace-stripped) and a 0\/1 validity
 byte. Quote-unescaped cells (cold) live in an 'IM.IntMap' keyed by row;
 their offset pair is @(-1, row)@.
 -}
@@ -156,10 +156,10 @@ feedSink env sink !row !s !e !unesc = case sink of
     SinkBS sc
         | unesc -> do
             let fresh = unescapeQuotes (envBS env) s e
-                stripped = withStripC8 fresh 0 (BS.length fresh) (sliceBS fresh)
+                stripped = withStripUtf8 fresh 0 (BS.length fresh) (sliceBS fresh)
             modifyIORef' (scEsc sc) (IM.insert row stripped)
             appendSliceCol sc row (-1) row (missingOk env stripped)
-        | otherwise -> withStripC8 (envBS env) s e $ \s' e' ->
+        | otherwise -> withStripUtf8 (envBS env) s e $ \s' e' ->
             let ok = case envMode env of
                     MissNone -> 1
                     MissCanonical ->

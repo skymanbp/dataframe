@@ -64,6 +64,7 @@ import qualified Plotting
 import qualified PrettyPrint
 import qualified Properties
 import qualified Properties.Categorical
+import qualified Properties.CsvStrip
 import qualified Simplify
 import qualified Typed.IOReaders
 import qualified Typed.Parity
@@ -154,11 +155,13 @@ main = do
                     Internal.ColumnBuilder.props
             propsRes <- mapM (quickCheckWithResult stdArgs) Properties.tests
             catRes <- mapM (quickCheckWithResult stdArgs) Properties.Categorical.tests
+            csvStripRes <- mapM (quickCheckWithResult stdArgs) Properties.CsvStrip.tests
             if not (all isSuccessful propRes)
                 || not (all isSuccessful subsetPropRes)
                 || not (all isSuccessful cbRes)
                 || not (all isSuccessful monadRes)
                 || not (all isSuccessful propsRes)
                 || not (all isSuccessful catRes)
+                || not (all isSuccessful csvStripRes)
                 then Exit.exitFailure
                 else Exit.exitSuccess
