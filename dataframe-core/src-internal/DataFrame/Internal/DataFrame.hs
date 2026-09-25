@@ -318,7 +318,10 @@ insertColumn name column d =
     let
         (r, c) = dataframeDimensions d
         n = max (columnLength column) r
-        exprs = M.delete name (derivingExpressions d)
+        exprs =
+            M.filter
+                (\(UExpr e) -> name `notElem` getColumns e)
+                (M.delete name (derivingExpressions d))
      in
         case M.lookup name (columnIndices d) of
             Just i ->
