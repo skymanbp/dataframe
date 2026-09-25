@@ -496,6 +496,8 @@ renameSafe ::
     T.Text -> T.Text -> DataFrame -> Either DataFrameException DataFrame
 renameSafe orig new df
     | null df = throw (EmptyDataSetException "rename")
+    | orig /= new && M.member new (columnIndices df) =
+        Left (DuplicateColumnException new "rename")
     | otherwise = fromMaybe
         (Left $ ColumnsNotFoundException [orig] "rename" (M.keys $ columnIndices df))
         $ do

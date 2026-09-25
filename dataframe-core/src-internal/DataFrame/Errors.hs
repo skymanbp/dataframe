@@ -32,6 +32,7 @@ data DataFrameException where
         DataFrameException
     AggregatedAndNonAggregatedException :: T.Text -> T.Text -> DataFrameException
     ColumnsNotFoundException :: [T.Text] -> T.Text -> [T.Text] -> DataFrameException
+    DuplicateColumnException :: T.Text -> T.Text -> DataFrameException
     EmptyDataSetException :: T.Text -> DataFrameException
     InternalException :: T.Text -> DataFrameException
     ExpectedNonNullableException :: DataFrameException
@@ -56,6 +57,12 @@ instance Show DataFrameException where
                 (callingFunctionName context)
                 errorString
     show (ColumnsNotFoundException columnNames callPoint availableColumns) = columnsNotFound columnNames callPoint availableColumns
+    show (DuplicateColumnException name callPoint) =
+        red "\n\n[ERROR] "
+            ++ "Column already exists: "
+            ++ T.unpack name
+            ++ " for operation "
+            ++ T.unpack callPoint
     show (EmptyDataSetException callPoint) = emptyDataSetError callPoint
     show (WrongQuantileNumberException q) = wrongQuantileNumberError q
     show (WrongQuantileIndexException qs q) = wrongQuantileIndexError qs q
