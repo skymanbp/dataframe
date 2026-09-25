@@ -46,6 +46,7 @@ import Data.Maybe (fromMaybe)
 import Data.STRef (newSTRef, readSTRef, writeSTRef)
 import qualified Data.Set as S
 import qualified Data.Text as T
+import Data.Text.Internal (Text (Text))
 import Data.Type.Equality (TestEquality (..))
 import qualified Data.Vector as VB
 import qualified Data.Vector.Algorithms.Merge as VA
@@ -57,17 +58,23 @@ import DataFrame.Errors (
  )
 import DataFrame.Internal.Algorithms.Sort.Radix.Parallel (parSortByHash)
 import DataFrame.Internal.Column as D (
-    Column (BoxedColumn, UnboxedColumn),
+    Column (BoxedColumn, PackedText, UnboxedColumn),
+    SBool (..),
     atIndicesStable,
     columnTypeString,
     fromUnboxedVector,
     fromVector,
     gatherWithSentinel,
     isPackedText,
+    materializeMerged,
     materializePacked,
     mkMergedColumns,
+    sFloating,
+    sIntegral,
  )
-import DataFrame.Internal.Column.Bitmap (bitmapTestBit)
+import DataFrame.Internal.Column.Bitmap (Bitmap, bitmapTestBit)
+import DataFrame.Internal.Control.Concurrent (parThreshold, parallelChunks)
+import DataFrame.Internal.Data.PackedText (packedSlice, sliceEqBytes)
 import DataFrame.Internal.DataFrame as D
 import DataFrame.Operations.Aggregation as D
 import DataFrame.Operations.Core as D
@@ -286,6 +293,152 @@ validatedKeyColIndices callPoint csSet df =
      in case missingKeys of
             [] -> M.elems $ M.restrictKeys columnIdxs csSet
             _ -> throw (ColumnsNotFoundException missingKeys callPoint (M.keys columnIdxs))
+
+{- | Drop the kernel's candidate pairs whose keys differ (kernels match on the
+row hash alone). With @keepL@ (@keepR@) a left (right) row that loses every
+candidate is kept unmatched.
+-}
+verifyPairs ::
+    Bool ->
+    Bool ->
+    S.Set T.Text ->
+    DataFrame ->
+    DataFrame ->
+    VU.Vector Int ->
+    VU.Vector Int ->
+    (VU.Vector Int, VU.Vector Int)
+verifyPairs keepL keepR csSet left right lIxs rIxs
+    | hashIsKey lKeys rKeys || allPairsEq eq lIxs rIxs = (lIxs, rIxs)
+    | otherwise = runST $ do
+        let !n = VU.length lIxs
+            ok = VU.zipWith (pairEq eq) lIxs rIxs
+            !cap = if keepR then n + VU.length (VU.elemIndices False ok) else n
+        seenL <- VUM.replicate (if keepL then D.nRows left else 0) False
+        seenR <- VUM.replicate (if keepR then D.nRows right else 0) False
+        lv <- VUM.unsafeNew cap
+        rv <- VUM.unsafeNew cap
+        let mark !k
+                | k >= n = return ()
+                | otherwise = do
+                    let !l = lIxs `VU.unsafeIndex` k
+                        !r = rIxs `VU.unsafeIndex` k
+                    when (ok `VU.unsafeIndex` k) $ do
+                        when (keepL && l >= 0) $ VUM.unsafeWrite seenL l True
+                        when (keepR && r >= 0) $ VUM.unsafeWrite seenR r True
+                    mark (k + 1)
+            claim keep seen !row
+                | not keep = return False
+                | otherwise = do
+                    s <- VUM.unsafeRead seen row
+                    if s then return False else VUM.unsafeWrite seen row True >> return True
+            emit !l !r !p = do
+                VUM.unsafeWrite lv p l
+                VUM.unsafeWrite rv p r
+                return (p + 1)
+            fill !k !p
+                | k >= n = return p
+                | ok `VU.unsafeIndex` k = emit l r p >>= fill (k + 1)
+                | otherwise = do
+                    c <- claim keepL seenL l
+                    if c then emit l (-1) p >>= fill (k + 1) else fill (k + 1) p
+              where
+                !l = lIxs `VU.unsafeIndex` k
+                !r = rIxs `VU.unsafeIndex` k
+            fillRight !k !p
+                | k >= n = return p
+                | ok `VU.unsafeIndex` k = fillRight (k + 1) p
+                | otherwise = do
+                    let !r = rIxs `VU.unsafeIndex` k
+                    c <- claim keepR seenR r
+                    if c then emit (-1) r p >>= fillRight (k + 1) else fillRight (k + 1) p
+        mark 0
+        !p <- fill 0 0
+        !total <- if keepR then fillRight 0 p else return p
+        (,)
+            <$> VU.unsafeFreeze (VUM.slice 0 total lv)
+            <*> VU.unsafeFreeze (VUM.slice 0 total rv)
+  where
+    keyCols df =
+        map
+            (materializeMerged . (D.columns df `VB.unsafeIndex`))
+            (keyColIndices csSet df)
+    lKeys = keyCols left
+    rKeys = keyCols right
+    eq = keysEq lKeys rKeys
+
+pairEq :: (Int -> Int -> Bool) -> Int -> Int -> Bool
+pairEq eq !l !r = l < 0 || r < 0 || eq l r
+{-# INLINE pairEq #-}
+
+allPairsEq :: (Int -> Int -> Bool) -> VU.Vector Int -> VU.Vector Int -> Bool
+allPairsEq eq lIxs rIxs =
+    and . unsafePerformIO $
+        parallelChunks parThreshold (VU.length lIxs) $ \lo hi ->
+            let go !k =
+                    k >= hi
+                        || ( pairEq eq (lIxs `VU.unsafeIndex` k) (rIxs `VU.unsafeIndex` k)
+                                && go (k + 1)
+                           )
+             in return $! go lo
+{-# NOINLINE allPairsEq #-}
+
+{- | A single non-null key of one integral type hashes injectively, so equal
+row hashes already mean equal keys.
+-}
+hashIsKey :: [Column] -> [Column] -> Bool
+hashIsKey [UnboxedColumn Nothing (_ :: VU.Vector a)] [UnboxedColumn Nothing (_ :: VU.Vector b)] =
+    case (testEquality (typeRep @a) (typeRep @b), sIntegral @a) of
+        (Just Refl, STrue) -> True
+        _ -> False
+hashIsKey _ _ = False
+
+keysEq :: [Column] -> [Column] -> Int -> Int -> Bool
+keysEq lKeys rKeys =
+    let !preds = zipWith keyColEq lKeys rKeys
+        go [] _ _ = True
+        go (p : ps) i j = p i j && go ps i j
+     in go preds
+
+keyColEq :: Column -> Column -> Int -> Int -> Bool
+keyColEq (UnboxedColumn lbm (lv :: VU.Vector a)) (UnboxedColumn rbm (rv :: VU.Vector b)) =
+    keyNullEq lbm rbm $ case testEquality (typeRep @a) (typeRep @b) of
+        Just Refl -> \i j -> lv `VU.unsafeIndex` i == rv `VU.unsafeIndex` j
+        Nothing -> case (sIntegral @a, sIntegral @b) of
+            (STrue, STrue) -> \i j ->
+                toInteger (lv `VU.unsafeIndex` i) == toInteger (rv `VU.unsafeIndex` j)
+            _ -> case (sFloating @a, sFloating @b) of
+                (STrue, STrue) -> \i j ->
+                    realToFrac @a @Double (lv `VU.unsafeIndex` i)
+                        == realToFrac @b @Double (rv `VU.unsafeIndex` j)
+                _ -> \_ _ -> False
+keyColEq (BoxedColumn lbm (lv :: VB.Vector a)) (BoxedColumn rbm (rv :: VB.Vector b)) =
+    case testEquality (typeRep @a) (typeRep @b) of
+        Just Refl -> keyNullEq lbm rbm $ \i j -> lv `VB.unsafeIndex` i == rv `VB.unsafeIndex` j
+        Nothing -> \_ _ -> False
+keyColEq (PackedText lbm lp) (PackedText rbm rp) =
+    keyNullEq lbm rbm $ \i j ->
+        let (la, lo, ll) = packedSlice lp i
+            (ra, ro, rl) = packedSlice rp j
+         in sliceEqBytes la lo ll ra ro rl
+keyColEq (PackedText lbm lp) (BoxedColumn rbm (rv :: VB.Vector b)) =
+    case testEquality (typeRep @b) (typeRep @T.Text) of
+        Just Refl -> keyNullEq lbm rbm $ \i j ->
+            let (la, lo, ll) = packedSlice lp i
+                Text ra ro rl = rv `VB.unsafeIndex` j
+             in sliceEqBytes la lo ll ra ro rl
+        Nothing -> \_ _ -> False
+keyColEq l@(BoxedColumn _ _) r@(PackedText _ _) = flip (keyColEq r l)
+keyColEq _ _ = \_ _ -> False
+
+keyNullEq ::
+    Maybe Bitmap -> Maybe Bitmap -> (Int -> Int -> Bool) -> Int -> Int -> Bool
+keyNullEq Nothing Nothing eqV = eqV
+keyNullEq lbm rbm eqV = \i j -> case (valid lbm i, valid rbm j) of
+    (True, True) -> eqV i j
+    (False, False) -> True
+    _ -> False
+  where
+    valid bm k = maybe True (`bitmapTestBit` k) bm
 
 -- ============================================================
 -- Inner Join
@@ -631,8 +784,9 @@ assembleInner ::
     VU.Vector Int ->
     VU.Vector Int ->
     DataFrame
-assembleInner csSet left right leftIxs rightIxs =
-    let !resultLen = VU.length leftIxs
+assembleInner csSet left right candLeftIxs candRightIxs =
+    let (leftIxs, rightIxs) = verifyPairs False False csSet left right candLeftIxs candRightIxs
+        !resultLen = VU.length leftIxs
         leftColSet = S.fromList (D.columnNames left)
         rightColNames = D.columnNames right
 
@@ -929,8 +1083,9 @@ assembleLeft ::
     VU.Vector Int ->
     VU.Vector Int ->
     DataFrame
-assembleLeft csSet left right leftIxs rightIxs =
-    let !resultLen = VU.length leftIxs
+assembleLeft csSet left right candLeftIxs candRightIxs =
+    let (leftIxs, rightIxs) = verifyPairs True False csSet left right candLeftIxs candRightIxs
+        !resultLen = VU.length leftIxs
         leftColSet = S.fromList (D.columnNames left)
         rightColNames = D.columnNames right
 
@@ -1212,8 +1367,9 @@ assembleFullOuter ::
     VU.Vector Int ->
     VU.Vector Int ->
     DataFrame
-assembleFullOuter csSet left right leftIxs rightIxs =
-    let !resultLen = VU.length leftIxs
+assembleFullOuter csSet left right candLeftIxs candRightIxs =
+    let (leftIxs, rightIxs) = verifyPairs True True csSet left right candLeftIxs candRightIxs
+        !resultLen = VU.length leftIxs
         leftColSet = S.fromList (D.columnNames left)
         rightColNames = D.columnNames right
 
