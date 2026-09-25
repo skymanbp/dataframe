@@ -338,6 +338,7 @@ test-suite tests
                    Plotting,
                    Properties,
                    Properties.Categorical,
+                   Properties.CsvStrip,
                    Simplify,
                    Typed.Parity,
                    Typed.IOReaders,

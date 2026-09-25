@@ -12,6 +12,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 
 import Control.Exception (SomeException, evaluate, try)
 import Data.List (isInfixOf)
@@ -569,10 +570,58 @@ goldenCases =
         , Cols (2, 1) [("a", texts ["\65533", "b"])]
         )
     ,
-        ( "raw_nbsp_edges_stripped"
+        ( "raw_stray_a0_bytes_kept"
         , defaultReadOptions
         , BS.pack [97, 10, 160, 120, 160, 10, 98, 10]
+        , Cols (2, 1) [("a", texts ["\65533x\65533", "b"])]
+        )
+    ,
+        ( "utf8_nbsp_edges_stripped"
+        , defaultReadOptions
+        , TE.encodeUtf8 "a\n\160x\160\nb\n"
         , Cols (2, 1) [("a", texts ["x", "b"])]
+        )
+    ,
+        ( "utf8_ideographic_space_edges_stripped"
+        , defaultReadOptions
+        , TE.encodeUtf8 "a\n\12288x\12288\nb\n"
+        , Cols (2, 1) [("a", texts ["x", "b"])]
+        )
+    ,
+        ( "utf8_trailing_a0_latin_kept"
+        , defaultReadOptions
+        , TE.encodeUtf8 "name\ncittà\nvoilà\n"
+        , Cols (2, 1) [("name", texts ["città", "voilà"])]
+        )
+    ,
+        ( "utf8_trailing_a0_cjk_kept"
+        , defaultReadOptions
+        , TE.encodeUtf8 "name\n小张\n谢谢你\n"
+        , Cols (2, 1) [("name", texts ["小张", "谢谢你"])]
+        )
+    ,
+        ( "utf8_trailing_a0_symbol_emoji_kept"
+        , defaultReadOptions
+        , TE.encodeUtf8 "name\n⚠\n🏠\n"
+        , Cols (2, 1) [("name", texts ["⚠", "🏠"])]
+        )
+    ,
+        ( "utf8_trailing_a0_quoted_kept"
+        , defaultReadOptions
+        , TE.encodeUtf8 "name\n\"città\"\n\"ci\"\"ttà\"\n"
+        , Cols (2, 1) [("name", texts ["città", "ci\"ttà"])]
+        )
+    ,
+        ( "utf8_nbsp_around_int_stripped"
+        , defaultReadOptions
+        , TE.encodeUtf8 "a\n5\160\n\160\&6\n"
+        , Cols (2, 1) [("a", ints [5, 6])]
+        )
+    ,
+        ( "utf8_nbsp_only_cell_missing"
+        , defaultReadOptions
+        , TE.encodeUtf8 "a\n\160\n1\n"
+        , Cols (2, 1) [("a", mints [Nothing, Just 1])]
         )
     ]
   where
