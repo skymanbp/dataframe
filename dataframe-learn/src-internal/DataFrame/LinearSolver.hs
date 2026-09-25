@@ -28,6 +28,7 @@ module DataFrame.LinearSolver (
     dotProduct,
 ) where
 
+import DataFrame.Errors (DataFrameException (..))
 import DataFrame.Expression.Operators ((.*.), (.+.), (.>.))
 import qualified DataFrame.Functions as F
 import DataFrame.Internal.Expression (Expr (..))
@@ -39,6 +40,7 @@ import DataFrame.LinearSolver.Loss (
     sigmoid,
  )
 
+import Control.Exception (throw)
 import Control.Monad.ST (ST, runST)
 import qualified Data.Text as T
 import qualified Data.Vector as V
@@ -137,6 +139,18 @@ runFista ::
     V.Vector T.Text ->
     LinearModel
 runFista loss lipschitzOf cfg rows labels featureNames
+    | Just ws <- scSampleWeights cfg
+    , VU.length ws /= n =
+        throw
+            ( InternalException
+                ( T.pack
+                    ( "scSampleWeights: expected "
+                        ++ show n
+                        ++ " weights (one per row), got "
+                        ++ show (VU.length ws)
+                    )
+                )
+            )
     | n == 0 || d == 0 = zeroModel
     | otherwise =
         let (!means, !stds, !variances) = columnStats rows
