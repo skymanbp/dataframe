@@ -105,6 +105,33 @@ fromRowsRoundTripsWithNulls =
                 (D.fromRows (D.columnNames df) (map (map snd) (D.toRowList df)))
         )
 
+renameOntoExistingColumn :: Test
+renameOntoExistingColumn =
+    TestCase
+        ( assertExpectException
+            "[Error Case]"
+            "Column already exists: B"
+            (print $ D.rename "A" "B" testData)
+        )
+
+renameManySwapThrows :: Test
+renameManySwapThrows =
+    TestCase
+        ( assertExpectException
+            "[Error Case]"
+            "Column already exists: B"
+            (print $ D.renameMany [("A", "B"), ("B", "A")] testData)
+        )
+
+renameToItselfIsIdentity :: Test
+renameToItselfIsIdentity =
+    TestCase
+        ( assertEqual
+            "renaming a column to itself is a no-op"
+            testData
+            (D.rename "A" "A" testData)
+        )
+
 tests :: [Test]
 tests =
     [ TestLabel "createsDataFrameFromRows" createsDataFrameFromRows
@@ -113,4 +140,7 @@ tests =
     , TestLabel "fromRowsKeepsNullsInPlace" fromRowsKeepsNullsInPlace
     , TestLabel "fromRowsAllNullColumnKeepsRows" fromRowsAllNullColumnKeepsRows
     , TestLabel "fromRowsRoundTripsWithNulls" fromRowsRoundTripsWithNulls
+    , TestLabel "renameOntoExistingColumn" renameOntoExistingColumn
+    , TestLabel "renameManySwapThrows" renameManySwapThrows
+    , TestLabel "renameToItselfIsIdentity" renameToItselfIsIdentity
     ]
