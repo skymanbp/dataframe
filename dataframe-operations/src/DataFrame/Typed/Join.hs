@@ -35,7 +35,7 @@ innerJoin ::
     TypedDataFrame right ->
     TypedDataFrame (InnerJoinSchema keys left right)
 innerJoin (TDF l) (TDF r) =
-    unsafeFreeze (DJ.innerJoin keyNames r l)
+    unsafeFreeze (DJ.innerJoin keyNames l r)
   where
     keyNames = symbolVals @keys
 
@@ -83,6 +83,6 @@ fullOuterJoin ::
     TypedDataFrame right ->
     TypedDataFrame (FullOuterJoinSchema keys left right)
 fullOuterJoin (TDF l) (TDF r) =
-    unsafeFreeze (DJ.fullOuterJoin keyNames r l)
+    unsafeFreeze (DJ.fullOuterJoin keyNames l r)
   where
     keyNames = symbolVals @keys
