@@ -36,13 +36,11 @@ module DataFrame.Operations.Join (
     assembleLeft,
 ) where
 
-import Control.Applicative ((<|>))
 import Control.Exception (throw)
 import Control.Monad (when)
 import Control.Monad.ST (ST, runST)
 import Data.Bits (popCount, unsafeShiftL, unsafeShiftR, (.&.), (.|.))
 import qualified Data.Map.Strict as M
-import Data.Maybe (fromMaybe)
 import Data.STRef (newSTRef, readSTRef, writeSTRef)
 import qualified Data.Set as S
 import qualified Data.Text as T
@@ -60,9 +58,8 @@ import DataFrame.Internal.Column as D (
     Column (BoxedColumn, UnboxedColumn),
     atIndicesStable,
     columnTypeString,
-    fromUnboxedVector,
-    fromVector,
     gatherWithSentinel,
+    hasMissing,
     isPackedText,
     materializePacked,
     mkMergedColumns,
@@ -1238,46 +1235,46 @@ assembleFullOuter csSet left right leftIxs rightIxs =
         insertIfPresent _ Nothing df = df
         insertIfPresent name (Just c) df = D.insertColumn name c df
 
-        coalesceKeyColumn :: Column -> Column -> Column
-        coalesceKeyColumn l r
+        keyNullable name =
+            any (maybe False D.hasMissing . D.getColumn name) [left, right]
+
+        validAt bm i = case bm of
+            Just bm' -> bitmapTestBit bm' i
+            Nothing -> True
+
+        keyBitmap nullable lBm rBm
+            | nullable = VU.zipWith (.|.) <$> lBm <*> rBm
+            | otherwise = Nothing
+
+        coalesceKeyColumn :: Bool -> Column -> Column -> Column
+        coalesceKeyColumn nullable l r
             | D.isPackedText l || D.isPackedText r =
-                coalesceKeyColumn (D.materializePacked l) (D.materializePacked r)
+                coalesceKeyColumn nullable (D.materializePacked l) (D.materializePacked r)
         coalesceKeyColumn
+            nullable
             (BoxedColumn lBm (lCol :: VB.Vector a))
             (BoxedColumn rBm (rCol :: VB.Vector b)) =
                 case testEquality (typeRep @a) (typeRep @b) of
                     Just Refl ->
-                        let asMaybe bm =
-                                VB.imap
-                                    ( \i v -> case bm of
-                                        Just bm' -> if bitmapTestBit bm' i then Just v else Nothing
-                                        Nothing -> Just v
-                                    )
-                            lMaybe = asMaybe lBm lCol
-                            rMaybe = asMaybe rBm rCol
-                         in D.fromVector $
-                                VB.zipWith
-                                    ( \l r ->
-                                        fromMaybe (error "fullOuterJoin: null on both sides of key column") (l <|> r)
-                                    )
-                                    lMaybe
-                                    rMaybe
+                        BoxedColumn (keyBitmap nullable lBm rBm) $
+                            VB.generate resultLen $ \i ->
+                                if validAt lBm i
+                                    then VB.unsafeIndex lCol i
+                                    else VB.unsafeIndex rCol i
                     Nothing -> error "Cannot join columns of different types"
         coalesceKeyColumn
+            nullable
             (UnboxedColumn lBm (lCol :: VU.Vector a))
             (UnboxedColumn rBm (rCol :: VU.Vector b)) =
                 case testEquality (typeRep @a) (typeRep @b) of
                     Just Refl ->
-                        let validAt bm i = case bm of
-                                Just bm' -> bitmapTestBit bm' i
-                                Nothing -> True
-                            dat = VU.generate resultLen $ \i ->
+                        let dat = VU.generate resultLen $ \i ->
                                 if validAt lBm i
                                     then VU.unsafeIndex lCol i
                                     else VU.unsafeIndex rCol i
-                         in D.fromUnboxedVector dat
+                         in UnboxedColumn (keyBitmap nullable lBm rBm) dat
                     Nothing -> error "Cannot join columns of different types"
-        coalesceKeyColumn lc rc =
+        coalesceKeyColumn _ lc rc =
             error $
                 "fullOuterJoin: key columns have mismatched storage representations "
                     <> "(one boxed, one unboxed): "
@@ -1288,7 +1285,8 @@ assembleFullOuter csSet left right leftIxs rightIxs =
             ( \name df ->
                 if S.member name csSet
                     then case (getExpandedLeft name, getExpandedRight name) of
-                        (Just lc, Just rc) -> D.insertColumn name (coalesceKeyColumn lc rc) df
+                        (Just lc, Just rc) ->
+                            D.insertColumn name (coalesceKeyColumn (keyNullable name) lc rc) df
                         _ -> df
                     else
                         if S.member name leftColSet
