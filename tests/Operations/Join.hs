@@ -6,6 +6,7 @@ module Operations.Join where
 
 import Assertions (assertExpectException)
 import Control.Exception (evaluate)
+import Data.List (sort)
 import Data.Text (Text, unpack)
 import qualified DataFrame as D
 import qualified DataFrame.Functions as F
@@ -241,6 +242,62 @@ testFullOuterJoinUnboxedKey =
                 (fullOuterJoin ["customer_id"] ordersDf customersDf)
             )
         )
+
+testFullOuterJoinNullKeyUnboxed :: Test
+testFullOuterJoinNullKeyUnboxed =
+    TestCase
+        ( assertEqual
+            "Full outer join keeps an unmatched null Int key null"
+            [(Nothing, Just 20), (Just 1, Just 10), (Just 3, Nothing)]
+            ( sort
+                ( zip
+                    (D.columnAsList (F.col @(Maybe Int) "k") joined)
+                    (D.columnAsList (F.col @(Maybe Int) "a") joined)
+                )
+            )
+        )
+  where
+    joined =
+        fullOuterJoin
+            ["k"]
+            ( D.fromNamedColumns
+                [ ("k", D.fromList [Just 1, Nothing :: Maybe Int])
+                , ("a", D.fromList [10, 20 :: Int])
+                ]
+            )
+            ( D.fromNamedColumns
+                [ ("k", D.fromList [Just 1, Just 3 :: Maybe Int])
+                , ("b", D.fromList [100, 300 :: Int])
+                ]
+            )
+
+testFullOuterJoinNullKeyBoxed :: Test
+testFullOuterJoinNullKeyBoxed =
+    TestCase
+        ( assertEqual
+            "Full outer join keeps a null Text key matched on both sides null"
+            [(Nothing, Just 100), (Just "a", Nothing), (Just "c", Just 300)]
+            ( sort
+                ( zip
+                    (D.columnAsList (F.col @(Maybe Text) "k") joined)
+                    (D.columnAsList (F.col @(Maybe Int) "b") joined)
+                )
+            )
+        )
+  where
+    joined =
+        fullOuterJoin
+            ["k"]
+            ( D.fromNamedColumns
+                [ ("k", D.fromList [Just "a", Nothing :: Maybe Text])
+                , ("a", D.fromList [10, 20 :: Int])
+                ]
+            )
+            ( D.fromNamedColumns
+                [ ("k", D.fromList [Nothing, Just "c" :: Maybe Text])
+                , ("b", D.fromList [100, 300 :: Int])
+                ]
+            )
 
 ordersDf :: D.DataFrame
 ordersDf =
@@ -540,6 +597,8 @@ tests =
     , TestLabel "testRightJoinTyped" testRightJoinTyped
     , TestLabel "fullOuterJoin" testFullOuterJoin
     , TestLabel "fullOuterJoinUnboxedKey" testFullOuterJoinUnboxedKey
+    , TestLabel "fullOuterJoinNullKeyUnboxed" testFullOuterJoinNullKeyUnboxed
+    , TestLabel "fullOuterJoinNullKeyBoxed" testFullOuterJoinNullKeyBoxed
     , TestLabel "innerJoinWithCollisions" testInnerJoinWithCollisions
     , TestLabel "leftJoinWithCollisions" testLeftJoinWithCollisions
     , TestLabel "rightJoinWithCollisions" testRightJoinWithCollisions
